@@ -182,7 +182,7 @@ def bind_server_tasks():
     :return:
     """
 
-    @deco(RedisLock("server_binding_tasks_redis_lock_key"), release=True)
+    @deco(RedisLock("server_binding_tasks_redis_lock_key"))
     def index():
         logging.info("开始检查server是否绑定服务树！！！")
         with DBContext("w", None, True) as session:
