@@ -10,29 +10,28 @@ from typing import Optional, Tuple
 
 import volcenginesdkcore
 from volcenginesdkcore.rest import ApiException
-from volcenginesdkmongodb import MONGODBApi, DescribeDBInstancesRequest, DescribeDBEndpointRequest
+from volcenginesdkmongodb import DescribeDBEndpointRequest, DescribeDBInstancesRequest, MONGODBApi
 
-from models.models_utils import mongodb_task, mark_expired, mark_expired_by_sync
+from models.models_utils import mark_expired, mark_expired_by_sync, mongodb_task
+
+MongoDBChargeTypeMapping = {"PrePaid": "包年包月", "PostPaid": "按量计费"}
 
 
 def get_mongodb_status(val):
     status_mapping = {
-        'Running': '运行中',
+        "Running": "运行中",
     }
-    return status_mapping.get(val, '未知')
+    return status_mapping.get(val, "未知")
 
 
 def get_mongodb_class(val):
-    class_mapping = {
-        "ReplicaSet": "副本集",
-        "ShardedCluster": "分片集群"
-    }
-    return class_mapping.get(val, '未知')
+    class_mapping = {"ReplicaSet": "副本集", "ShardedCluster": "分片集群"}
+    return class_mapping.get(val, "未知")
 
 
 class VolcMongoDB:
     def __init__(self, access_id: str, access_key: str, region: str, account_id: str) -> None:
-        self.cloud_name = 'volc'
+        self.cloud_name = "volc"
         self.page_number = 1  # 实例状态列表的页码。起始值：1 默认值：1
         self.page_size = 100  # 分页查询时设置的每页行数。最大值：100 默认值：10
         self._region = region
@@ -110,14 +109,18 @@ class VolcMongoDB:
         try:
             if endpoint := self.describe_mongodb_endpoint(data.instance_id):
                 for item in endpoint.db_endpoints:
-                    if item.network_type == 'Private':
-                        db_addresses.extend(item.endpoint_str.split(','))
+                    if item.network_type == "Private":
+                        db_addresses.extend(item.endpoint_str.split(","))
         except Exception as e:
             logging.warning(f"处理MongoDB连接地址时出错: {e}")
 
         tags = []
         if data.tags:
-            tags = [{'key': tag.key, 'value': tag.value} for tag in data.tags]
+            tags = [{"key": tag.key, "value": tag.value} for tag in data.tags]
+
+        ext_info = {"charge_type": MongoDBChargeTypeMapping.get(data.charge_type, "未知")}
+        if hasattr(data, "auto_renew") and data.auto_renew:
+            ext_info["renew_type"] = data.auto_renew
         return {
             "instance_id": data.instance_id,
             "name": data.instance_name,
@@ -130,12 +133,14 @@ class VolcMongoDB:
             "db_class": get_mongodb_class(data.instance_type),
             "storage_type": data.storage_type,
             "db_address": list(set(db_addresses)),
-            'zone': data.zone_id,
+            "zone": data.zone_id,
             "tags": tags,
+            "ext_info": ext_info,
         }
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'volc', resource_type: Optional[str] = 'mongodb') -> Tuple[
-        bool, str]:
+    def sync_cmdb(
+        self, cloud_name: Optional[str] = "volc", resource_type: Optional[str] = "mongodb"
+    ) -> Tuple[bool, str]:
         """
         资产信息更新到DB
         :param cloud_name:
@@ -146,16 +151,19 @@ class VolcMongoDB:
         if not all_mongodb:
             return False, "mongodb实例列表为空"
         # 更新资源
-        ret_state, ret_msg = mongodb_task(account_id=self._account_id,
-                                          cloud_name=cloud_name,
-                                          rows=all_mongodb)
+        ret_state, ret_msg = mongodb_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_mongodb)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [mongodb['instance_id'] for mongodb in all_mongodb]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [mongodb["instance_id"] for mongodb in all_mongodb]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

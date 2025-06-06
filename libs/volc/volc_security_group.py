@@ -4,21 +4,18 @@
 # @Description: 火山云安全组
 
 from __future__ import print_function
+
 import logging
-from typing import *
+from typing import Any, Dict, List, Optional, Tuple
 
 from volcenginesdkcore.rest import ApiException
-from volcenginesdkvpc import DescribeSecurityGroupsRequest, DescribeSecurityGroupAttributesRequest
+from volcenginesdkvpc import DescribeSecurityGroupAttributesRequest, DescribeSecurityGroupsRequest
 
 from libs.volc.volc_vpc import VolCVPC
-from models.models_utils import security_group_task, mark_expired, mark_expired_by_sync
+from models.models_utils import mark_expired, mark_expired_by_sync, security_group_task
 
-SecurityGroupTypeMapping = {
-    "default": "默认",
-    "normal": "自定义",
-    "VpnGW": "VPN网关",
-    "NatGW": "Nat网关"
-}
+SecurityGroupTypeMapping = {"default": "默认", "normal": "自定义", "VpnGW": "VPN网关", "NatGW": "Nat网关"}
+
 
 def get_port_range(port_start: str, port_end: str) -> str:
     """
@@ -37,7 +34,6 @@ def get_port_range(port_start: str, port_end: str) -> str:
 
 
 class VolCSecurityGroup(VolCVPC):
-
     def get_describe_security_group(self):
         """
         查询安全组列表
@@ -72,14 +68,14 @@ class VolCSecurityGroup(VolCVPC):
     def handle_data(self, data) -> Dict[str, Any]:
         res: Dict[str, Any] = dict()
         instance_id = data.security_group_id
-        res['instance_id'] = instance_id
-        res['vpc_id'] = data.vpc_id
-        res['security_group_name'] = data.security_group_name
-        res['description'] = data.description
-        res['region'] = self._region
-        res['create_time'] = data.creation_time
-        res['security_group_type'] = SecurityGroupTypeMapping.get(data.type, "Unknown")
-        res['ref_info'] = dict(items=[])
+        res["instance_id"] = instance_id
+        res["vpc_id"] = data.vpc_id
+        res["security_group_name"] = data.security_group_name
+        res["description"] = data.description
+        res["region"] = self._region
+        res["create_time"] = data.creation_time
+        res["security_group_type"] = SecurityGroupTypeMapping.get(data.type, "未知")
+        res["ref_info"] = dict(items=[])
 
         # 安全组权限
         detail = self.get_describe_security_group_detail(instance_id)
@@ -89,25 +85,29 @@ class VolCSecurityGroup(VolCVPC):
             if permissions:
                 for permission in permissions:
                     item = dict()
-                    item['security_group_id'] = detail.security_group_id
-                    item['ip_protocol'] = permission.protocol
-                    item['source_cidr_ip'] = permission.cidr_ip if permission.direction == "ingress" else ""  # 入方向规则设置源地址
-                    item['source_group_name'] = ''
-                    item['dest_group_name'] = ''
-                    item['ipv6_source_cidr_ip'] = ''
-                    item['dest_cidr_ip'] = permission.cidr_ip if permission.direction == "egress" else ""  # 出方向规则设置目标地址
-                    item['ipv6_dest_cidr_ip'] = ''
-                    item['policy'] = permission.policy
-                    item['port_range'] = get_port_range(permission.port_start, permission.port_end)
-                    item['port_start'] = permission.port_start
-                    item['port_end'] = permission.port_end
-                    item['description'] = permission.description
-                    item['direction'] = permission.direction
-                    item['priority'] = permission.priority
-                    item['creation_time'] = permission.creation_time
+                    item["security_group_id"] = detail.security_group_id
+                    item["ip_protocol"] = permission.protocol
+                    item["source_cidr_ip"] = (
+                        permission.cidr_ip if permission.direction == "ingress" else ""
+                    )  # 入方向规则设置源地址
+                    item["source_group_name"] = ""
+                    item["dest_group_name"] = ""
+                    item["ipv6_source_cidr_ip"] = ""
+                    item["dest_cidr_ip"] = (
+                        permission.cidr_ip if permission.direction == "egress" else ""
+                    )  # 出方向规则设置目标地址
+                    item["ipv6_dest_cidr_ip"] = ""
+                    item["policy"] = permission.policy
+                    item["port_range"] = get_port_range(permission.port_start, permission.port_end)
+                    item["port_start"] = permission.port_start
+                    item["port_end"] = permission.port_end
+                    item["description"] = permission.description
+                    item["direction"] = permission.direction
+                    item["priority"] = permission.priority
+                    item["creation_time"] = permission.creation_time
                     items.append(item)
 
-        res['security_info'] = dict(items=items)
+        res["security_info"] = dict(items=items)
         return res
 
     def get_all_security_group(self) -> List:
@@ -128,8 +128,9 @@ class VolCSecurityGroup(VolCVPC):
             logging.error(f"火山云安全组调用异常 get_all_security_group: {self._account_id} -- {e}")
         return security_groups
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'volc', resource_type: Optional[str] = 'security_group') -> Tuple[
-        bool, str]:
+    def sync_cmdb(
+        self, cloud_name: Optional[str] = "volc", resource_type: Optional[str] = "security_group"
+    ) -> Tuple[bool, str]:
         """
         同步CMDB
         :param cloud_name:
@@ -141,16 +142,22 @@ class VolCSecurityGroup(VolCVPC):
         if not all_security_group:
             return False, "安全组列表为空"
         # 同步资源
-        ret_state, ret_msg = security_group_task(account_id=self._account_id, cloud_name=cloud_name,
-                                                 rows=all_security_group)
+        ret_state, ret_msg = security_group_task(
+            account_id=self._account_id, cloud_name=cloud_name, rows=all_security_group
+        )
 
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [security_group['instance_id'] for security_group in all_security_group]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [security_group["instance_id"] for security_group in all_security_group]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

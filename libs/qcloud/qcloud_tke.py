@@ -9,7 +9,7 @@ from __future__ import print_function
 import logging
 
 from tencentcloud.common import credential
-from tencentcloud.tke.v20180525 import tke_client, models
+from tencentcloud.tke.v20180525 import models, tke_client
 
 from models.models_utils import cluster_task, mark_expired, mark_expired_by_sync
 
@@ -146,7 +146,7 @@ class QcloudTKE:
             "Activating": "激活中",
             "Terminating": "删除中",
         }
-        return status_mapping.get(val, '未知')
+        return status_mapping.get(val, "未知")
 
     @staticmethod
     def get_cluster_status(val: str) -> str:
@@ -179,7 +179,7 @@ class QcloudTKE:
             "ResourceIsolate": "隔离中",
             "ResourceIsolated": "已隔离",
             "ResourceReverse": "冲正中",
-            "Abnormal": "异常"
+            "Abnormal": "异常",
         }.get(val, "未知")
 
     def process_cluster(self, data) -> dict:
@@ -198,28 +198,21 @@ class QcloudTKE:
             "version": data.ClusterVersion,
             "region": self._region,
             "vpc_id": data.ClusterNetworkSettings.VpcId,
-            'cidr_block_v4': data.ClusterNetworkSettings.ServiceCIDR,
-            'total_node': data.ClusterNodeNum,
-            'total_running_node': 0,
-            'tags': tags,
-            'description': data.ClusterDescription,
+            "cidr_block_v4": data.ClusterNetworkSettings.ServiceCIDR,
+            "total_node": data.ClusterNodeNum,
+            "total_running_node": 0,
+            "tags": tags,
+            "description": data.ClusterDescription,
             # 'zone': data.Zone
-            'cluster_type': '标准集群',
+            "cluster_type": "标准集群",
         }
 
     @staticmethod
     def process_tags(data: dict) -> list:
         tags = []
         try:
-            if hasattr(data, 'TagSpecification'):
-                tags = [
-                    {
-                        "key": tag.Key,
-                        "value": tag.Value
-                    }
-                    for spec in data.TagSpecification
-                    for tag in spec.Tags
-                ]
+            if hasattr(data, "TagSpecification"):
+                tags = [{"key": tag.Key, "value": tag.Value} for spec in data.TagSpecification for tag in spec.Tags]
         except Exception as e:
             logging.error(f"获取标签失败: {e}")
         return tags
@@ -241,17 +234,17 @@ class QcloudTKE:
             "version": data.K8SVersion,
             "region": self._region,
             "vpc_id": data.VpcId,
-            'tags': tags,
-            'cidr_block_v4': '',
-            'inner_ip': '',
-            'outer_ip': '',
-            'total_node': 0,
-            'total_running_node': 0,
-            'description': data.ClusterDesc,
-            'cluster_type': 'Serverless集群',
+            "tags": tags,
+            "cidr_block_v4": "",
+            "inner_ip": "",
+            "outer_ip": "",
+            "total_node": 0,
+            "total_running_node": 0,
+            "description": data.ClusterDesc,
+            "cluster_type": "Serverless集群",
         }
 
-    def sync_cmdb(self, cloud_name: str = 'qcloud', resource_type: str = 'cluster'):
+    def sync_cmdb(self, cloud_name: str = "qcloud", resource_type: str = "cluster"):
         """
         同步cmdb
         Args:
@@ -265,19 +258,24 @@ class QcloudTKE:
             cluster_list = self.get_all_cluster_instance()
             tke_list.extend(cluster_list)
             if not tke_list:
-                return False, '腾讯云tke集群为空'
+                return False, "腾讯云tke集群为空"
             # 更新资源
             ret_state, ret_msg = cluster_task(account_id=self._account_id, cloud_name=cloud_name, rows=tke_list)
             # 标记过期
             # mark_expired(resource_type=resource_type, account_id=self._account_id)
-            instance_ids = [cluster['instance_id'] for cluster in tke_list]
-            mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                                 instance_ids=instance_ids, region=self._region)
+            instance_ids = [cluster["instance_id"] for cluster in tke_list]
+            mark_expired_by_sync(
+                cloud_name=cloud_name,
+                account_id=self._account_id,
+                resource_type=resource_type,
+                instance_ids=instance_ids,
+                region=self._region,
+            )
             return ret_state, ret_msg
         except Exception as e:
             logging.error(f"同步腾讯云tke集群失败: {e}")
-            return False, '同步失败'
+            return False, "同步失败"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

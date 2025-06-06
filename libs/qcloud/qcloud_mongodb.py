@@ -9,9 +9,19 @@ import logging
 from typing import List, Union
 
 from tencentcloud.common import credential
-from tencentcloud.mongodb.v20190725 import mongodb_client, models
+from tencentcloud.mongodb.v20190725 import models, mongodb_client
 
-from models.models_utils import mongodb_task, mark_expired, mark_expired_by_sync
+from models.models_utils import mark_expired, mark_expired_by_sync, mongodb_task
+
+
+def get_renew_type(val):
+    if not val:
+        return ""
+    return {1: "自动续费", 0: "手动续费", 2: "不续费"}.get(val, "未知")
+
+
+def get_charge_type(val):
+    return {1: "包年包月", 0: "按量计费"}.get(val, "未知")
 
 
 class QcloudMongoDB:
@@ -46,8 +56,7 @@ class QcloudMongoDB:
             return
 
     def describe_mongo_endpoint(self, instance_id: str) -> Union[models.DescribeDBInstanceURLRequest, None]:
-        """获取mongodb实例的连接地址
-        """
+        """获取mongodb实例的连接地址"""
         req = models.DescribeDBInstanceURLRequest()
         req.InstanceId = instance_id
         try:
@@ -74,19 +83,11 @@ class QcloudMongoDB:
 
     @staticmethod
     def get_mongodb_class(val):
-        return {
-            0: "副本集",
-            1: "分片集群"
-        }.get(val, '未知')
+        return {0: "副本集", 1: "分片集群"}.get(val, "未知")
 
     @staticmethod
     def get_mongodb_status(val):
-        return {
-            0: "创建中",
-            1: "流程中",
-            2: "运行中",
-            -2: "已过期"
-        }.get(val, '未知')
+        return {0: "创建中", 1: "流程中", 2: "运行中", -2: "已过期"}.get(val, "未知")
 
     @staticmethod
     def get_uri_type(uri_type: str) -> str:
@@ -106,7 +107,7 @@ class QcloudMongoDB:
             "MONGOS_READ_READONLY": "Mongos只读节点",
             "MONGOS_READ_SECONDARY": "Mongos从节点",
             "MONGOS_READ_PRIMARY_AND_SECONDARY": "Mongos主从节点",
-            "MONGOS_READ_SECONDARY_AND_READONLY": "Mongos从节点和只读节点"
+            "MONGOS_READ_SECONDARY_AND_READONLY": "Mongos从节点和只读节点",
         }.get(uri_type, "未知类型")
 
     @staticmethod
@@ -117,15 +118,15 @@ class QcloudMongoDB:
         Return:
             str: 存储引擎名称
         """
-        if '_WT' in version:
-            return 'WiredTiger'
-        if '_ROCKS' in version:
-            return 'RocksDB'
-        if '_INMEM' in version:
-            return 'In-Memory'
-        if '_MMAP' in version:
-            return 'MMAPv1'
-        return ''
+        if "_WT" in version:
+            return "WiredTiger"
+        if "_ROCKS" in version:
+            return "RocksDB"
+        if "_INMEM" in version:
+            return "In-Memory"
+        if "_MMAP" in version:
+            return "MMAPv1"
+        return ""
 
     @staticmethod
     def format_mongo_version(version: str) -> str:
@@ -136,9 +137,9 @@ class QcloudMongoDB:
             str: 格式化后的版本号 (如 '5.0 WiredTiger')
         """
         if not version:
-            return ''
+            return ""
         try:
-            parts = version.split('_')
+            parts = version.split("_")
             if len(parts) < 2:
                 return version
 
@@ -163,8 +164,7 @@ class QcloudMongoDB:
         db_addresses = []
         urls = self.describe_mongo_endpoint(data.InstanceId)
         if urls:
-            db_addresses = [url.Address for url in urls.Urls if url.URLType=='CLUSTER_DEFAULT']
-
+            db_addresses = [url.Address for url in urls.Urls if url.URLType == "CLUSTER_DEFAULT"]
 
         tags = []
         if data.Tags:
@@ -174,7 +174,13 @@ class QcloudMongoDB:
             db_version = self.format_mongo_version(data.MongoVersion)
         except Exception as e:
             logging.error(f"处理MongoDB版本号时出错: {e}")
-            db_version = ''
+            db_version = ""
+        ext_info = {}
+        if hasattr(data, "AutoRenewFlag"):
+            ext_info["renew_type"] = get_renew_type(data.AutoRenewFlag)
+        if hasattr(data, "PayMode"):
+            ext_info["charge_type"] = get_charge_type(data.PayMode)
+
         return {
             "instance_id": data.InstanceId,
             "name": data.InstanceName,
@@ -183,32 +189,34 @@ class QcloudMongoDB:
             "vpc_id": data.VpcId,
             "db_version": db_version,
             "subnet_id": data.SubnetId,
-            "project_name": '',
+            "project_name": "",
             "db_class": self.get_mongodb_class(data.ClusterType),
-            "storage_type": '',
+            "storage_type": "",
             "db_address": db_addresses,
-            'zone': data.Zone,
+            "zone": data.Zone,
             "tags": tags,
+            "ext_info": ext_info,
         }
 
-    def sync_cmdb(self, cloud_name: str = 'qcloud', resource_type: str = 'mongodb'):
-        """同步mongodb实例到CMDB
-        """
+    def sync_cmdb(self, cloud_name: str = "qcloud", resource_type: str = "mongodb"):
+        """同步mongodb实例到CMDB"""
         all_mongodb_instance = self.get_all_mongodb_instance()
         if not all_mongodb_instance:
             return False, "mongodb实例列表为空"
         # 更新资源
-        ret_state, ret_msg = mongodb_task(account_id=self._account_id,
-                                          cloud_name=cloud_name,
-                                          rows=all_mongodb_instance)
+        ret_state, ret_msg = mongodb_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_mongodb_instance)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [mongodb['instance_id'] for mongodb in all_mongodb_instance]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [mongodb["instance_id"] for mongodb in all_mongodb_instance]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass
-
