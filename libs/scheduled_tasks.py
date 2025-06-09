@@ -380,8 +380,10 @@ def volc_auto_renew_task_by_resource(cloud_name: str = "volc", resource_type: Op
         send_volc_auto_renew_notification(resource_type, inspection_result)
 
     except Exception as e:
-        logging.error(f"火山云自动续费巡检任务执行失败: {str(e)}")
+        logging.error(f"火山云{resource_type}自动续费巡检任务执行失败: {str(e)}")
         raise
+    else:
+        logging.info(f"火山云{resource_type}自动续费巡检任务执行成功")
 
 
 def volc_auto_renew_task():
@@ -411,8 +413,11 @@ def execute_qcloud_auto_renew_inspection(cloud_name: str, resource_type: str, in
     if not instances:
         return None
 
-    instance_objs = queryset_to_list(instances)
-    _inspector = QCloudAutoRenewInspector(instance_objs)
+    instances_objs = []
+    for region, account_id, instance_id, ext_info in instances:
+        instances_objs.append(dict(region=region, account_id=account_id, instance_id=instance_id, ext_info=ext_info))
+
+    _inspector = QCloudAutoRenewInspector(instance_objs=instances_objs)
     result = _inspector.run()
 
     if not result.success:
@@ -460,8 +465,10 @@ def qcloud_auto_renew_task_by_resource(cloud_name: str = "qcloud", resource_type
         send_qcloud_auto_renew_notification(resource_type, result)
 
     except Exception as e:
-        logging.error(f"腾讯云自动续费巡检任务执行失败: {str(e)}")
+        logging.error(f"腾讯云{resource_type}自动续费巡检任务执行失败: {str(e)}")
         raise
+    else:
+        logging.info(f"腾讯云{resource_type}自动续费巡检任务执行成功")
 
 
 def qcloud_auto_renew_task():
@@ -622,4 +629,4 @@ def init_scheduled_tasks():
 
 
 if __name__ == "__main__":
-    pass
+    volc_auto_renew_task()
