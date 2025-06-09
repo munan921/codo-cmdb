@@ -56,6 +56,6 @@ class QCloudBillingInspector(BaseInspector):
             )
         return InspectorResult(
             success=True,
-            message=f"腾讯云账户可用余额巡检正常，当前余额为{total_balance}元",
+            message=f"腾讯云账户可用余额巡检正常，当前余额为{total_balance}元, 大于阈值{self.threshold / 100}元",
             status=InspectorStatus.NORMAL,
         )

@@ -66,5 +66,5 @@ class VolCBillingInspector(BaseInspector):
         return InspectorResult(
             success=True,
             status=InspectorStatus.NORMAL,
-            message=f"火山云账户可用余额巡检正常，当前余额为{balance}元",
+            message=f"火山云账户可用余额巡检正常，当前余额为{balance}元, 大于阈值{self.threshold}元",
         )
