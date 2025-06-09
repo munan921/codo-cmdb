@@ -629,4 +629,4 @@ def init_scheduled_tasks():
 
 
 if __name__ == "__main__":
-    volc_auto_renew_task()
+    pass
