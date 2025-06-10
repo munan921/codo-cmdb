@@ -556,9 +556,8 @@ def create_or_update_big_area(**data):
             idip = data.pop("idip", "")
             app_secret = data.pop("app_secret", "")
 
-            if app_secret and (not current_obj or app_secret != mc.my_decrypt(current_obj.app_secret)):
+            if app_secret and (not current_obj or app_secret != current_obj.app_secret):
                 app_secret = mc.my_encrypt(app_secret)
-            print(app_secret)
             create_or_update_big_area_for_db(
                 session,
                 env_id=env_id,
@@ -568,7 +567,6 @@ def create_or_update_big_area(**data):
                 idip=idip,
             )
     except Exception as e:
-        print(e)
         return dict(code=-1, msg=str(e), data=[])
     return dict(code=0, msg="操作成功", data=result)
 
