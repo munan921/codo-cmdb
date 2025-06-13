@@ -45,8 +45,9 @@ class VolCAutoRenewInspector(BaseInspector):
         """
         过滤出非自动续费实例
         """
+        # FIXME: 自动续费类型为AutoRenewal，手动续费类型为ManualRenewal
         return [
-            {"instance_id": ins.instance_id, "renew_type": ins.renew_type, "instance_name": ins.instance_name}
+            {"instance_id": ins.instance_id, "renew_type": "手动续费", "instance_name": ins.instance_name}
             for ins in instances
             if ins.renew_type and ins.renew_type != "AutoRenewal"
         ]

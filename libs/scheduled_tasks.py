@@ -338,20 +338,21 @@ def execute_volc_auto_renew_inspection(cloud_name: str, resource_type: str, regi
     return total_result
 
 
-def send_volc_auto_renew_notification(resource_type: str, inspection_result: List):
+def send_volc_auto_renew_notification(resource_type: str, result: List):
     """
     发送火山云自动续费巡检通知
     """
-    if not inspection_result:
+    if not result:
         logging.info("巡检完成, 未发现开通包年包月未自动续费实例")
         return
 
     send_feishu_notification(
-        message=f"火山云自动续费巡检结果: {inspection_result}",
+        message=f"火山云{resource_type}自动续费巡检结果",
         notify_configs=configs.billing_notify_configs,
         at_user=True,
         use_card=True,
         title=f"火山云{resource_type}自动续费巡检结果",
+        instances=result,
     )
 
 
@@ -406,7 +407,9 @@ def volc_auto_renew_task():
         logging.error(f"火山云自动续费巡检任务出错 {str(err)}")
 
 
-def execute_qcloud_auto_renew_inspection(cloud_name: str, resource_type: str, instances: List) -> Optional[InspectorResult]:
+def execute_qcloud_auto_renew_inspection(
+    cloud_name: str, resource_type: str, instances: List
+) -> Optional[InspectorResult]:
     """
     执行腾讯云自动续费巡检
     """

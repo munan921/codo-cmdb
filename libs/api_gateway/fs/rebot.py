@@ -69,6 +69,7 @@ $rows
                     "direction": "vertical",
                     "padding": "12px 12px 12px 12px",
                     "elements": [
+                        {"tag": "div", "text": {"content": "<at id=all></at>", "tag": "lark_md"}},
                         {
                             "tag": "markdown",
                             "content": content,
@@ -76,17 +77,17 @@ $rows
                             "text_size": "normal_v2",
                             "margin": "0px 0px 0px 0px",
                         },
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "🌞查看详情"},
-                            "type": "default",
-                            "width": "default",
-                            "size": "medium",
-                            "behaviors": [
-                                {"type": "open_url", "default_url": "", "pc_url": "", "ios_url": "", "android_url": ""}
-                            ],
-                            "margin": "0px 0px 0px 0px",
-                        },
+                        # {
+                        #     "tag": "button",
+                        #     "text": {"tag": "plain_text", "content": "🌞登录CMDB查看详情"},
+                        #     "type": "default",
+                        #     "width": "default",
+                        #     "size": "medium",
+                        #     "behaviors": [
+                        #         {"type": "open_url", "default_url": "", "pc_url": "", "ios_url": "", "android_url": ""}
+                        #     ],
+                        #     "margin": "0px 0px 0px 0px",
+                        # },
                     ],
                 },
                 "header": {
