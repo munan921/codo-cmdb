@@ -6,15 +6,20 @@
 # @Version :   1.0
 # @Desc    :   飞书机器人
 
-
+import base64
+import hashlib
+import hmac
+import time
 from string import Template
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 
 class FeishuBot:
-    def __init__(self, webhook_url: Optional[str] = None, notice_user_id: Optional[str] = None):
+    def __init__(
+        self, webhook_url: Optional[str] = None, notice_user_id: Optional[str] = None, secret: Optional[str] = None
+    ):
         """
         初始化飞书机器人
         """
@@ -22,6 +27,9 @@ class FeishuBot:
             webhook_url or "https://open.feishu.cn/open-apis/bot/v2/hook/71db8ab2-46bc-4383-bde2-d2d977c9bc26"
         )
         self.notice_user_id = notice_user_id or "all"
+        self.secret = secret
+        if not self.secret:
+            raise ValueError("飞书通知签名密钥不能为空")
         # 预定义模板
         self.templates = {
             "instance_table": Template("""
@@ -34,6 +42,20 @@ $rows
 **总计:** $total 个实例
 """),
         }
+
+    def gen_signature(self) -> Tuple[int, str]:
+        """
+        生成飞书通知签名
+        :return: 签名时间戳和签名
+        """
+        # 飞书通知签名
+        timestamp = round(time.time())
+        string_to_sign = "{}\n{}".format(timestamp, self.secret)
+        hmac_code = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+
+        # 对结果进行base64处理
+        sign = base64.b64encode(hmac_code).decode("utf-8")
+        return timestamp, sign
 
     def send_message(self, data: Dict[str, Any]):
         """
@@ -50,9 +72,12 @@ $rows
         :param message: 消息内容
         :return: 返回飞书机器人返回的消息
         """
+        timestamp, sign = self.gen_signature()
         data = {
             "msg_type": "text",
             "content": {"text": message},
+            "timestamp": timestamp,
+            "sign": sign,
         }
         return self.send_message(data)
 
@@ -60,8 +85,11 @@ $rows
         """
         发送卡片消息
         """
+        timestamp, sign = self.gen_signature()
         data = {
             "msg_type": "interactive",
+            "timestamp": timestamp,
+            "sign": sign,
             "card": {
                 "schema": "2.0",
                 "config": {

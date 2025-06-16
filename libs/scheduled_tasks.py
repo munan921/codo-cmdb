@@ -348,6 +348,7 @@ def send_volc_auto_renew_notification(resource_type: str, result: List):
 
     send_feishu_notification(
         message=f"火山云{resource_type}自动续费巡检结果",
+        notify_configs=configs.billing_notify_configs,
         at_user=True,
         use_card=True,
         title=f"火山云{resource_type}自动续费巡检结果",
@@ -391,7 +392,7 @@ def volc_auto_renew_task():
     火山云自动续费巡检任务
     """
 
-    # @deco(RedisLock("volc_auto_renew_tasks_redis_lock_key"))
+    @deco(RedisLock("volc_auto_renew_tasks_redis_lock_key"))
     def index():
         volc_auto_renew_task_by_resource(resource_type="server")  # 主机
         volc_auto_renew_task_by_resource(resource_type="lb")  # LB
@@ -440,6 +441,7 @@ def send_qcloud_auto_renew_notification(resource_type: str, result: InspectorRes
     at_user = result.status == InspectorStatus.EXCEPTION
     send_feishu_notification(
         message=f"腾讯云{resource_type}自动续费巡检结果",
+        notify_configs=configs.billing_notify_configs,
         at_user=at_user,
         use_card=True,
         title=f"腾讯云{resource_type}自动续费巡检结果",
@@ -493,7 +495,7 @@ def qcloud_auto_renew_task():
 
 def send_feishu_notification(
     message: str,
-    notify_config: Optional[Dict[str, any]] = None,
+    notify_configs: Optional[Dict[str, any]] = None,
     at_user: bool = False,
     use_card: bool = False,
     title: Optional[str] = None,
@@ -502,112 +504,112 @@ def send_feishu_notification(
     """
     发送飞书通知
     :param message: 消息内容
-    :param notify_config: 通知配置列表
+    :param notify_configs: 通知配置列表
     :param at_user: 是否@用户
     :param use_card: 是否使用卡片消息
     :param title: 卡片标题
     :param instances: 实例列表
     """
-    if not notify_config:
-        notify_config = {
-            "type": "feishu",
-            "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/71db8ab2-46bc-4383-bde2-d2d977c9bc26",
-            "user_id": "all",
-        }
+    if not notify_configs:
+        return
 
-    try:
-        bot = FeishuBot(
-            webhook_url=notify_config.get("webhook_url"),
-            notice_user_id=notify_config.get("user_id"),
-        )
-        if use_card:
-            # 发送卡片消息
-            if not title or not instances:
-                logging.warning("卡片消息缺少必要参数(title或instances)，跳过发送")
-            bot.send_instance_message(title=title, instances=instances)
-            logging.info(f"飞书卡片通知发送成功: {title}, 实例数量: {len(instances)}")
-        else:
-            # 发送文本消息
-            final_message = message
-            if at_user and notify_config.get("user_id"):
-                final_message = f'<at user_id="{notify_config["user_id"]}"></at> {message}'
+    for notify_config in notify_configs:
+        if notify_config.get("type") != "feishu":
+            continue
+        try:
+            bot = FeishuBot(
+                webhook_url=notify_config.get("webhook_url"),
+                notice_user_id=notify_config.get("user_id"),
+                secret=notify_config.get("secret"),
+            )
+            if use_card:
+                # 发送卡片消息
+                if not title or not instances:
+                    logging.warning("卡片消息缺少必要参数(title或instances)，跳过发送")
+                bot.send_instance_message(title=title, instances=instances)
+                logging.info(f"飞书卡片通知发送成功: {title}, 实例数量: {len(instances)}")
+            else:
+                # 发送文本消息
+                final_message = message
+                if at_user and notify_config.get("user_id"):
+                    final_message = f'<at user_id="{notify_config["user_id"]}"></at> {message}'
 
-            bot.send_text_message(final_message)
-            logging.info(f"飞书文本通知发送成功: {final_message}")
+                bot.send_text_message(final_message)
+                logging.info(f"飞书文本通知发送成功: {final_message}")
 
-    except Exception as e:
-        logging.error(f"发送飞书通知失败: {e}")
+        except Exception as e:
+            logging.error(f"发送飞书通知失败: {e}")
 
 
 def volc_billing_task(cloud_name="volc"):
     """
     火山云账单巡检任务
     """
-    logging.info("开始火山云账单巡检任务")
-    cloud_settings = get_cloud_config(cloud_name)
-    for cloud_setting in cloud_settings:
-        billing_obj = VolCBilling(
-            access_id=cloud_setting["access_id"],
-            access_key=mc.my_decrypt(cloud_setting["access_key"]),
-            region=cloud_setting["region"],
-            account_id=cloud_setting["account_id"],
-        )
-        billing_inspector = VolCBillingInspector(
-            instance_obj=billing_obj,
-            threshold=configs.get("volc_billing_threshold"),
-        )
-        result = billing_inspector.run()
-        if not result.success:
-            # 巡检异常
-            logging.error(f"火山云账单巡检异常 {result.message}")
-            return
-        at_user = result.status == InspectorStatus.EXCEPTION
-        send_feishu_notification(result.message, at_user=at_user)
 
-    logging.info("火山云账户巡检任务结束")
+    @deco(RedisLock("volc_billing_tasks_redis_lock_key"))
+    def index():
+        logging.info("开始火山云账单巡检任务")
+        cloud_settings = get_cloud_config(cloud_name)
+        for cloud_setting in cloud_settings:
+            billing_obj = VolCBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region=cloud_setting["region"],
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = VolCBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("volc_billing_threshold"),
+            )
+            result = billing_inspector.run()
+            if not result.success:
+                # 巡检异常
+                logging.error(f"火山云账单巡检异常 {result.message}")
+                return
+            at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(result.message, notify_configs=configs.billing_notify_configs, at_user=at_user)
+
+        logging.info("火山云账户巡检任务结束")
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"火山云账单巡检任务出错 {str(err)}")
 
 
 def qcloud_billing_task():
     """
     腾讯云账单巡检任务
     """
-    logging.info("开始腾讯云账单巡检任务")
-    cloud_settings = get_cloud_config("qcloud")
-    for cloud_setting in cloud_settings:
-        region = cloud_setting["region"]
-        # 任意region
-        if "," in region:
-            region = region.split(",")[0]
-        billing_obj = QCloudBilling(
-            access_id=cloud_setting["access_id"],
-            access_key=mc.my_decrypt(cloud_setting["access_key"]),
-            region=region,
-            account_id=cloud_setting["account_id"],
-        )
-        billing_inspector = QCloudBillingInspector(
-            instance_obj=billing_obj,
-            threshold=configs.get("qcloud_billing_threshold"),
-        )
-        result = billing_inspector.run()
-        at_user = result.status == InspectorStatus.EXCEPTION
-        send_feishu_notification(result.message, at_user=at_user)
-    logging.info("腾讯云账户巡检任务结束")
 
-
-def billing_tasks():
-    """
-    账单巡检任务
-    """
-
-    @deco(RedisLock("billing_tasks_redis_lock_key"))
+    @deco(RedisLock("qcloud_billing_tasks_redis_lock_key"))
     def index():
-        volc_billing_task()
-        qcloud_billing_task()
+        logging.info("开始腾讯云账单巡检任务")
+        cloud_settings = get_cloud_config("qcloud")
+        for cloud_setting in cloud_settings:
+            region = cloud_setting["region"]
+            # 任意region
+            if "," in region:
+                region = region.split(",")[0]
+            billing_obj = QCloudBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region=region,
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = QCloudBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("qcloud_billing_threshold"),
+            )
+            result = billing_inspector.run()
+            at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(result.message, notify_configs=configs.billing_notify_configs, at_user=at_user)
+        logging.info("腾讯云账户巡检任务结束")
 
     try:
         index()
     except Exception as err:
-        logging.error(f"账户巡检任务出错 {str(err)}")
+        logging.error(f"腾讯云账单巡检任务出错 {str(err)}")
 
 
 def init_scheduled_tasks():
@@ -625,7 +627,8 @@ def init_scheduled_tasks():
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
     scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
-    scheduler.add_job(billing_tasks, "cron", hour=10, minute=0, id="billing_tasks", max_instances=1)
+    scheduler.add_job(volc_billing_task, "cron", hour=10, minute=0, id="volc_billing_task", max_instances=1)
+    scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=0, id="qcloud_billing_task", max_instances=1)
 
 
 if __name__ == "__main__":
