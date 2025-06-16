@@ -133,7 +133,7 @@ def notify_unbound_agents_tasks(unbound_agents: Set[str] = None) -> None:
     :param unbound_agents: 未匹配的agent ID集合
     """
 
-    @deco(RedisLock("notify_unbound_agents_tasks_redis_lock_key", release=True))
+    @deco(RedisLock("notify_unbound_agents_tasks_redis_lock_key"))
     def index():
         unbound_agents = bind_agents()
         if unbound_agents:
