@@ -79,9 +79,6 @@ QCLOUD_BILLING_THRESHOLD = os.getenv("QCLOUD_BILLING_THRESHOLD", "1000000.0")
 # 火山云账单余额告警阈值
 VOLC_BILLING_THRESHOLD = os.getenv("VOLC_BILLING_THRESHOLD", "200000.0")
 
-# 账单告警通知配置
-BILLING_NOTIFY_CONFIGS = os.getenv("BILLING_NOTIFY_CONFIGS", [])
-
 try:
     from local_settings import *
 except ImportError:
@@ -107,7 +104,6 @@ settings = dict(
     gcp_sync=GCP_SYNC,
     volc_billing_threshold=VOLC_BILLING_THRESHOLD,
     qcloud_billing_threshold=QCLOUD_BILLING_THRESHOLD,
-    billing_notify_configs=BILLING_NOTIFY_CONFIGS,
     app_name="cmdb",
     databases={
         const.DEFAULT_DB_KEY: {

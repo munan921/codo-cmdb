@@ -8,17 +8,20 @@
 
 
 from string import Template
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
 
 class FeishuBot:
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: Optional[str] = None, notice_user_id: Optional[str] = None):
         """
         初始化飞书机器人
         """
-        self.webhook_url = webhook_url
+        self.webhook_url = (
+            webhook_url or "https://open.feishu.cn/open-apis/bot/v2/hook/71db8ab2-46bc-4383-bde2-d2d977c9bc26"
+        )
+        self.notice_user_id = notice_user_id or "all"
         # 预定义模板
         self.templates = {
             "instance_table": Template("""
@@ -69,7 +72,7 @@ $rows
                     "direction": "vertical",
                     "padding": "12px 12px 12px 12px",
                     "elements": [
-                        {"tag": "div", "text": {"content": "<at id=all></at>", "tag": "lark_md"}},
+                        {"tag": "div", "text": {"content": f"<at id={self.notice_user_id}></at>", "tag": "lark_md"}},
                         {
                             "tag": "markdown",
                             "content": content,

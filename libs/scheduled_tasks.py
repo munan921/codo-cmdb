@@ -348,7 +348,6 @@ def send_volc_auto_renew_notification(resource_type: str, result: List):
 
     send_feishu_notification(
         message=f"火山云{resource_type}自动续费巡检结果",
-        notify_configs=configs.billing_notify_configs,
         at_user=True,
         use_card=True,
         title=f"火山云{resource_type}自动续费巡检结果",
@@ -392,7 +391,7 @@ def volc_auto_renew_task():
     火山云自动续费巡检任务
     """
 
-    @deco(RedisLock("volc_auto_renew_tasks_redis_lock_key"))
+    # @deco(RedisLock("volc_auto_renew_tasks_redis_lock_key"))
     def index():
         volc_auto_renew_task_by_resource(resource_type="server")  # 主机
         volc_auto_renew_task_by_resource(resource_type="lb")  # LB
@@ -441,7 +440,6 @@ def send_qcloud_auto_renew_notification(resource_type: str, result: InspectorRes
     at_user = result.status == InspectorStatus.EXCEPTION
     send_feishu_notification(
         message=f"腾讯云{resource_type}自动续费巡检结果",
-        notify_configs=configs.billing_notify_configs,
         at_user=at_user,
         use_card=True,
         title=f"腾讯云{resource_type}自动续费巡检结果",
@@ -495,7 +493,7 @@ def qcloud_auto_renew_task():
 
 def send_feishu_notification(
     message: str,
-    notify_configs: List[dict],
+    notify_config: Optional[Dict[str, any]] = None,
     at_user: bool = False,
     use_card: bool = False,
     title: Optional[str] = None,
@@ -504,42 +502,41 @@ def send_feishu_notification(
     """
     发送飞书通知
     :param message: 消息内容
-    :param notify_configs: 通知配置列表
+    :param notify_config: 通知配置列表
     :param at_user: 是否@用户
     :param use_card: 是否使用卡片消息
     :param title: 卡片标题
     :param instances: 实例列表
     """
-    for notify_config in notify_configs:
-        if notify_config.get("type") != "feishu":
-            continue
+    if not notify_config:
+        notify_config = {
+            "type": "feishu",
+            "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/71db8ab2-46bc-4383-bde2-d2d977c9bc26",
+            "user_id": "all",
+        }
 
-        webhook_url = notify_config.get("webhook_url")
-        if not webhook_url:
-            logging.warning("飞书webhook_url为空，跳过发送")
-            continue
+    try:
+        bot = FeishuBot(
+            webhook_url=notify_config.get("webhook_url"),
+            notice_user_id=notify_config.get("user_id"),
+        )
+        if use_card:
+            # 发送卡片消息
+            if not title or not instances:
+                logging.warning("卡片消息缺少必要参数(title或instances)，跳过发送")
+            bot.send_instance_message(title=title, instances=instances)
+            logging.info(f"飞书卡片通知发送成功: {title}, 实例数量: {len(instances)}")
+        else:
+            # 发送文本消息
+            final_message = message
+            if at_user and notify_config.get("user_id"):
+                final_message = f'<at user_id="{notify_config["user_id"]}"></at> {message}'
 
-        try:
-            bot = FeishuBot(webhook_url=webhook_url)
+            bot.send_text_message(final_message)
+            logging.info(f"飞书文本通知发送成功: {final_message}")
 
-            if use_card:
-                # 发送卡片消息
-                if not title or not instances:
-                    logging.warning("卡片消息缺少必要参数(title或instances)，跳过发送")
-                    continue
-                bot.send_instance_message(title=title, instances=instances)
-                logging.info(f"飞书卡片通知发送成功: {title}, 实例数量: {len(instances)}")
-            else:
-                # 发送文本消息
-                final_message = message
-                if at_user and notify_config.get("user_id"):
-                    final_message = f'<at user_id="{notify_config["user_id"]}"></at> {message}'
-
-                bot.send_text_message(final_message)
-                logging.info(f"飞书文本通知发送成功: {final_message}")
-
-        except Exception as e:
-            logging.error(f"发送飞书通知失败: {e}")
+    except Exception as e:
+        logging.error(f"发送飞书通知失败: {e}")
 
 
 def volc_billing_task(cloud_name="volc"):
@@ -565,7 +562,7 @@ def volc_billing_task(cloud_name="volc"):
             logging.error(f"火山云账单巡检异常 {result.message}")
             return
         at_user = result.status == InspectorStatus.EXCEPTION
-        send_feishu_notification(result.message, configs.billing_notify_configs, at_user)
+        send_feishu_notification(result.message, at_user=at_user)
 
     logging.info("火山云账户巡检任务结束")
 
@@ -593,7 +590,7 @@ def qcloud_billing_task():
         )
         result = billing_inspector.run()
         at_user = result.status == InspectorStatus.EXCEPTION
-        send_feishu_notification(result.message, configs.billing_notify_configs, at_user)
+        send_feishu_notification(result.message, at_user=at_user)
     logging.info("腾讯云账户巡检任务结束")
 
 
