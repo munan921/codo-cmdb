@@ -18,7 +18,7 @@ from websdk2.tools import RedisLock
 
 from libs import deco
 from libs.api_gateway.fs.rebot import FeishuBot
-from libs.inspector.base import InspectorStatus, InspectorResult
+from libs.inspector.base import InspectorResult, InspectorStatus
 from libs.inspector.qcloud.auto_renew import QCloudAutoRenewInspector
 from libs.inspector.qcloud.billing import QCloudBillingInspector
 from libs.inspector.volc.auto_renew import VolCAutoRenewInspector
@@ -348,9 +348,9 @@ def send_volc_auto_renew_notification(resource_type: str, result: List):
 
     send_feishu_notification(
         message=f"火山云{resource_type}自动续费巡检结果",
-        notify_configs=configs.billing_notify_configs,
-        at_user=True,
-        use_card=True,
+        notify_configs=configs.notify_configs,
+        should_at_user=True,
+        message_type="instance",
         title=f"火山云{resource_type}自动续费巡检结果",
         instances=result,
     )
@@ -438,12 +438,12 @@ def send_qcloud_auto_renew_notification(resource_type: str, result: InspectorRes
         logging.info("巡检完成, 未发现需要关注的自动续费实例")
         return
 
-    at_user = result.status == InspectorStatus.EXCEPTION
+    should_at_user = result.status == InspectorStatus.EXCEPTION
     send_feishu_notification(
         message=f"腾讯云{resource_type}自动续费巡检结果",
-        notify_configs=configs.billing_notify_configs,
-        at_user=at_user,
-        use_card=True,
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user,
+        message_type="instance",
         title=f"腾讯云{resource_type}自动续费巡检结果",
         instances=result.data,
     )
@@ -496,8 +496,8 @@ def qcloud_auto_renew_task():
 def send_feishu_notification(
     message: str,
     notify_configs: Optional[Dict[str, any]] = None,
-    at_user: bool = False,
-    use_card: bool = False,
+    should_at_user: bool = False,
+    message_type: str = "text",  # 消息类型 text/card/instance
     title: Optional[str] = None,
     instances: List[Dict[str, any]] = None,
 ) -> None:
@@ -505,37 +505,47 @@ def send_feishu_notification(
     发送飞书通知
     :param message: 消息内容
     :param notify_configs: 通知配置列表
-    :param at_user: 是否@用户
-    :param use_card: 是否使用卡片消息
+    :param should_at_user: 是否@用户
+    :param message_type: 消息类型 text/card/instance
     :param title: 卡片标题
     :param instances: 实例列表
     """
-    if not notify_configs:
+    if not notify_configs or not isinstance(notify_configs, dict):
         return
 
-    for notify_config in notify_configs:
-        if notify_config.get("type") != "feishu":
+    billing_notify_configs = notify_configs.get("billing", [])
+    if not billing_notify_configs:
+        return
+
+    for billing_notify_config in billing_notify_configs:
+        if billing_notify_config.get("type") != "feishu":
             continue
         try:
             bot = FeishuBot(
-                webhook_url=notify_config.get("webhook_url"),
-                notice_user_id=notify_config.get("user_id"),
-                secret=notify_config.get("secret"),
+                webhook_url=billing_notify_config.get("webhook_url"),
+                secret=billing_notify_config.get("secret"),
             )
-            if use_card:
-                # 发送卡片消息
+            if message_type == "instance":
+                # 发送实例消息（使用模板）
                 if not title or not instances:
-                    logging.warning("卡片消息缺少必要参数(title或instances)，跳过发送")
-                bot.send_instance_message(title=title, instances=instances)
-                logging.info(f"飞书卡片通知发送成功: {title}, 实例数量: {len(instances)}")
-            else:
+                    logging.warning("实例消息缺少必要参数(title或instances)，跳过发送")
+                    continue
+                bot.send_instance_message(title=title, instances=instances, should_at_user=should_at_user)
+                logging.info(f"飞书实例消息发送成功: {title}, 实例数量: {len(instances)}")
+            elif message_type == "card":
+                # 发送卡片消息
+                if not title or not message:
+                    logging.warning("卡片消息缺少必要参数(title或message)，跳过发送")
+                    continue
+                bot.send_card_message(title=title, content=message, should_at_user=should_at_user)
+                logging.info(f"飞书卡片消息发送成功: {title}")
+            elif message_type == "text":
                 # 发送文本消息
-                final_message = message
-                if at_user and notify_config.get("user_id"):
-                    final_message = f'<at user_id="{notify_config["user_id"]}"></at> {message}'
-
-                bot.send_text_message(final_message)
-                logging.info(f"飞书文本通知发送成功: {final_message}")
+                bot.send_text_message(message, should_at_user=should_at_user)
+                logging.info(f"飞书文本消息发送成功: {message}")
+            else:
+                logging.warning(f"不支持的消息类型: {message_type}，跳过发送")
+                continue
 
         except Exception as e:
             logging.error(f"发送飞书通知失败: {e}")
@@ -566,8 +576,10 @@ def volc_billing_task(cloud_name="volc"):
                 # 巡检异常
                 logging.error(f"火山云账单巡检异常 {result.message}")
                 return
-            at_user = result.status == InspectorStatus.EXCEPTION
-            send_feishu_notification(result.message, notify_configs=configs.billing_notify_configs, at_user=at_user)
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
 
         logging.info("火山云账户巡检任务结束")
 
@@ -602,8 +614,10 @@ def qcloud_billing_task():
                 threshold=configs.get("qcloud_billing_threshold"),
             )
             result = billing_inspector.run()
-            at_user = result.status == InspectorStatus.EXCEPTION
-            send_feishu_notification(result.message, notify_configs=configs.billing_notify_configs, at_user=at_user)
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
         logging.info("腾讯云账户巡检任务结束")
 
     try:
