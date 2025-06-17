@@ -7,16 +7,18 @@ Date    : 2023/11/22 11:02
 Desc    : 火山云资产同步入口
 """
 
+import concurrent
 import logging
 import time
-from typing import *
-import concurrent
-from websdk2.tools import RedisLock
 from concurrent.futures import ThreadPoolExecutor
-from models.models_utils import sync_log_task, get_cloud_config
-from libs.volc import mapping, DEFAULT_CLOUD_NAME
-from libs.mycrypt import mc
+from typing import Any, Callable, Dict, List, Optional
+
+from websdk2.tools import RedisLock
+
 from libs import deco
+from libs.mycrypt import mc
+from libs.volc import DEFAULT_CLOUD_NAME, mapping
+from models.models_utils import get_cloud_config, sync_log_task
 
 
 def sync(data: Dict[str, Any]) -> None:
@@ -84,10 +86,13 @@ def main(account_id: Optional[str] = None, resources: List[str] = None, executor
         for _, v in sync_mapping.items():
             v["account_id"] = account_id
 
-
     # 定义账户级别的任务锁，确保同一账户的任务不会并发执行且支持多账户执行
-    @deco(RedisLock(f"async_volc_to_cmdb_{account_id}_redis_lock_key"
-                    if account_id else "async_volc_to_cmdb_redis_lock_key"), release=True)
+    @deco(
+        RedisLock(
+            f"async_volc_to_cmdb_{account_id}_redis_lock_key" if account_id else "async_volc_to_cmdb_redis_lock_key"
+        ),
+        release=True,
+    )
     def index():
         filtered_sync_mapping = {k: v for k, v in sync_mapping.items() if k in resources} if resources else sync_mapping
         if not filtered_sync_mapping:

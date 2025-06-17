@@ -3,15 +3,15 @@
 # @Date: 2024/3/26
 # @Description: 火山云redis实例
 from __future__ import print_function
+
 import logging
-from typing import *
+from typing import Any, Dict, List, Optional, Tuple
 
 import volcenginesdkcore
 from volcenginesdkcore.rest import ApiException
-from volcenginesdkredis import REDISApi, DescribeDBInstancesRequest, DescribeDBInstanceDetailRequest
+from volcenginesdkredis import DescribeDBInstanceDetailRequest, DescribeDBInstancesRequest, REDISApi
 
-from models.models_utils import redis_task, mark_expired, mark_expired_by_sync
-
+from models.models_utils import mark_expired, mark_expired_by_sync, redis_task
 
 # 文档 https://www.volcengine.com/docs/6293/71563
 RedisStatusMapping = {
@@ -32,32 +32,20 @@ RedisStatusMapping = {
     "Maintaining": "维护中",
     "Released": "已关停",
     "Running": "运行中",
-    "PrimaryChanging": "主备切换中"
+    "PrimaryChanging": "主备切换中",
 }
 
 # 计费类型
-ChargeTypeMapping = {
-    "PrePaid": "包年包月",
-    "PostPaid": "按量计费"
-}
+ChargeTypeMapping = {"PrePaid": "包年包月", "PostPaid": "按量计费"}
 
 # 实例类型
-InstanceClassMapping = {
-    "PrimarySecondary": "主备实例",
-    "Standalone": "单节点实例"
-}
+InstanceClassMapping = {"PrimarySecondary": "主备实例", "Standalone": "单节点实例"}
 
 # 分片集群
-ShardedClusterMapping = {
-    0: "不启用",
-    1: "启用"
-}
+ShardedClusterMapping = {0: "不启用", 1: "启用"}
 
 # 实例删除保护功能
-DeletionProtectionMapping = {
-    "enabled": "已开启",
-    "disabled": "已关闭"
-}
+DeletionProtectionMapping = {"enabled": "已开启", "disabled": "已关闭"}
 
 # 免密访问是否打开
 VpcAuthModeMapping = {
@@ -65,9 +53,10 @@ VpcAuthModeMapping = {
     "close": "已关闭",
 }
 
+
 class VolCRedis:
     def __init__(self, access_id: str, access_key: str, region: str, account_id: str):
-        self.cloud_name = 'volc'
+        self.cloud_name = "volc"
         self.page_number = 1  # 实例状态列表的页码。起始值：1 默认值：1
         self.page_size = 100  # 分页查询时设置的每页行数。最大值：100 默认值：10
         self._region = region
@@ -100,8 +89,9 @@ class VolCRedis:
         :return:
         """
         try:
-            instances_request = DescribeDBInstancesRequest(page_size=self.page_size, page_number=self.page_number,
-                                                           region_id=self._region)
+            instances_request = DescribeDBInstancesRequest(
+                page_size=self.page_size, page_number=self.page_number, region_id=self._region
+            )
             resp = self.api_instance.describe_db_instances(instances_request)
             return resp
         except ApiException as e:
@@ -158,45 +148,49 @@ class VolCRedis:
         try:
             vpc_id = data.vpc_id
             instance_id = data.instance_id
-            res['vpc_id'] = data.vpc_id
-            res["network_type"] = '经典网络' if not vpc_id else '专有网络'
-            res['qps'] = ''
-            res['vswitch_id'] = ""
-            res['instance_arch'] = ""
-            res['instance_id'] = instance_id
-            res['name'] = data.instance_name
-            res['state'] = RedisStatusMapping.get(data.status, "Unknown")
-            res['region'] = data.region_id
-            res['charge_type'] = ChargeTypeMapping.get(data.charge_type, "Unknown")
-            res['instance_type'] = 'Redis'
-            res['instance_version'] = data.engine_version
-            res['create_time'] = data.create_time
-            res['zone'] = ";".join(data.zone_ids)
-            res['instance_class'] = f'{data.capacity.total}MB'
+            res["vpc_id"] = data.vpc_id
+            res["network_type"] = "经典网络" if not vpc_id else "专有网络"
+            res["qps"] = ""
+            res["vswitch_id"] = ""
+            res["instance_arch"] = ""
+            res["instance_id"] = instance_id
+            res["name"] = data.instance_name
+            res["state"] = RedisStatusMapping.get(data.status, "未知")
+            res["region"] = data.region_id
+            res["charge_type"] = ChargeTypeMapping.get(data.charge_type, "未知")
+            res["instance_type"] = "Redis"
+            res["instance_version"] = data.engine_version
+            res["create_time"] = data.create_time
+            res["zone"] = ";".join(data.zone_ids)
+            res["instance_class"] = f"{data.capacity.total}MB"
 
+            # NOTE 为了统一风格，方便后续查询
+            res["ext_info"] = {
+                "charge_type": ChargeTypeMapping.get(data.charge_type, "未知"),
+            }
             # 补充实例详情
             detail = self.get_describe_db_instance_detail(instance_id=instance_id)
             if detail is not None:
                 items = []
                 visit_addrs = detail.visit_addrs
                 for addr in visit_addrs:
-                    items.append(
-                        {
-                            "type": addr.addr_type.lower(),
-                            "ip": "",
-                            "domain": addr.address,
-                            "port": addr.port
-                        })
+                    items.append({"type": addr.addr_type.lower(), "ip": "", "domain": addr.address, "port": addr.port})
                 res["instance_address"] = {"items": items}
-
+                try:
+                    # 说明
+                    # 仅包年包月实例（即 ChargeType 为 PrePaid），会返回该参数
+                    if hasattr(detail, "renew_type"):
+                        renew_type = detail.auto_renew
+                    res["ext_info"]["renew_type"] = renew_type if renew_type else ""
+                except Exception as err:
+                    pass
 
         except Exception as err:
             logging.error(f"火山云Redis handle_data err {self._account_id} -- {err}")
 
         return res
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'volc', resource_type: Optional[str] = 'redis') -> Tuple[
-        bool, str]:
+    def sync_cmdb(self, cloud_name: Optional[str] = "volc", resource_type: Optional[str] = "redis") -> Tuple[bool, str]:
         """
         同步到DB
         :param cloud_name:
@@ -210,12 +204,17 @@ class VolCRedis:
         ret_state, ret_msg = redis_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_redis_list)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [redis['instance_id'] for redis in all_redis_list]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [redis["instance_id"] for redis in all_redis_list]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
 
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

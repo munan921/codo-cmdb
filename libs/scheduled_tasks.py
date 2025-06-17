@@ -5,26 +5,41 @@
 
 import datetime
 import logging
+import time
 from collections import Counter, defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from websdk2.api_set import api_set
 from websdk2.client import AcsClient
 from websdk2.configs import configs
 from websdk2.db_context import DBContext
+from websdk2.model_utils import queryset_to_list
 from websdk2.tools import RedisLock
 
 from libs import deco
+from libs.api_gateway.fs.rebot import FeishuBot
+from libs.inspector.base import InspectorResult, InspectorStatus
+from libs.inspector.qcloud.auto_renew import QCloudAutoRenewInspector
+from libs.inspector.qcloud.billing import QCloudBillingInspector
+from libs.inspector.volc.auto_renew import VolCAutoRenewInspector
+from libs.inspector.volc.billing import VolCBillingInspector
+from libs.mycrypt import MyCrypt
+from libs.qcloud.qcloud_billing import QCloudBilling
 from libs.scheduler import scheduler
-from models import TreeAssetModels
+from libs.volc.volc_billing import VolCAutoRenew, VolCBilling
+from models import TreeAssetModels, asset_mapping
 from models.agent import AgentModels
 from models.asset import AgentBindStatus, AssetServerModels
+from models.cloud import CloudSettingModels
+from models.models_utils import get_cloud_config
 from services.asset_server_service import get_unique_servers
 from services.cloud_region_service import get_servers_by_cloud_region_id
 from settings import settings
 
 if configs.can_import:
     configs.import_dict(**settings)
+
+mc = MyCrypt()
 
 
 def send_router_alert(params: dict, body: dict):
@@ -118,7 +133,7 @@ def notify_unbound_agents_tasks(unbound_agents: Set[str] = None) -> None:
     :param unbound_agents: 未匹配的agent ID集合
     """
 
-    @deco(RedisLock("notify_unbound_agents_tasks_redis_lock_key", release=True))
+    @deco(RedisLock("notify_unbound_agents_tasks_redis_lock_key"))
     def index():
         unbound_agents = bind_agents()
         if unbound_agents:
@@ -182,7 +197,7 @@ def bind_server_tasks():
     :return:
     """
 
-    @deco(RedisLock("server_binding_tasks_redis_lock_key"), release=True)
+    @deco(RedisLock("server_binding_tasks_redis_lock_key"))
     def index():
         logging.info("开始检查server是否绑定服务树！！！")
         with DBContext("w", None, True) as session:
@@ -223,6 +238,394 @@ def bind_server_tasks():
         logging.error(f"检查server是否绑定服务树出错 {str(err)}")
 
 
+def get_asset_product_mapping() -> Dict[str, str]:
+    """
+    获取资产类型到云产品类型的映射
+    """
+    return {
+        "server": "ECS",
+        "lb": "CLB",
+        "mongodb": "veDB for DocumentDB",
+        "redis": "veDB_for_Redis",
+        "mysql": "RDS for MySQL",
+        "cluster": "VKE",
+    }
+
+
+def query_monthly_paid_instances(cloud_name: str, resource_type: str):
+    """
+    查询包年包月的实例
+    """
+    asset_model = asset_mapping.get(resource_type)
+    if not asset_model:
+        raise ValueError(f"资源类型 {resource_type} 不存在")
+
+    with DBContext("w", None, False) as session:
+        query = session.query(
+            asset_model.region, asset_model.account_id, asset_model.instance_id, asset_model.ext_info
+        ).filter(
+            asset_model.is_expired.is_(False),
+            asset_model.cloud_name == cloud_name,
+        )
+        # 如果模型有state字段，才加入state过滤条件
+        if hasattr(asset_model, "state"):
+            query = query.filter(asset_model.state == "运行中")
+        instances = query.all()
+
+    return instances
+
+
+def filter_monthly_paid_instances(instances):
+    """
+    过滤包年包月的实例, 如果实例没有ext_info,
+    """
+    filtered_instances = []
+    for instance in instances:
+        if hasattr(instance, "ext_info") and instance.ext_info:
+            if instance.ext_info.get("charge_type", "") == "包年包月":
+                filtered_instances.append(instance)
+        else:
+            filtered_instances.append(instance)
+    return filtered_instances
+
+
+def group_instances_by_region_account(instances):
+    """
+    按地区和账户分组实例
+    """
+    region_instances = defaultdict(list)
+    for region, account_id, instance_id, _ in instances:
+        region_instances[(region, account_id)].append(instance_id)
+    return region_instances
+
+
+def execute_volc_auto_renew_inspection(cloud_name: str, resource_type: str, region_instances: dict) -> List:
+    """
+    执行火山云自动续费巡检
+    """
+    asset_product_mapping = get_asset_product_mapping()
+    cloud_product_type = asset_product_mapping.get(resource_type)
+    if not cloud_product_type:
+        raise ValueError(f"未知的资产类型: {resource_type}")
+
+    total_result = []
+
+    # 遍历每个 region，分批处理
+    for (region, account_id), instance_ids in region_instances.items():
+        cloud_configs = get_cloud_config(cloud_name, account_id)
+        if not cloud_configs:
+            continue
+
+        auto_renew_obj = VolCAutoRenew(
+            access_id=cloud_configs[0]["access_id"],
+            access_key=mc.my_decrypt(cloud_configs[0]["access_key"]),
+            region=region,
+            account_id=account_id,
+        )
+
+        batch_size = 100
+        for i in range(0, len(instance_ids), batch_size):
+            time.sleep(0.1)
+            batch = instance_ids[i : i + batch_size]
+            request = VolCAutoRenew.build_request(instance_ids=batch, product=cloud_product_type)
+            _inspector = VolCAutoRenewInspector(instance_obj=auto_renew_obj, request=request)
+            result = _inspector.run()
+
+            if not result.data or not result.success:
+                continue
+            total_result.extend(result.data)
+
+    return total_result
+
+
+def send_volc_auto_renew_notification(resource_type: str, result: List):
+    """
+    发送火山云自动续费巡检通知
+    """
+    if not result:
+        logging.info("巡检完成, 未发现开通包年包月未自动续费实例")
+        return
+
+    send_feishu_notification(
+        message=f"火山云{resource_type}自动续费巡检结果",
+        notify_configs=configs.notify_configs,
+        should_at_user=True,
+        message_type="instance",
+        title=f"火山云{resource_type}自动续费巡检结果",
+        instances=result,
+    )
+
+
+def volc_auto_renew_task_by_resource(cloud_name: str = "volc", resource_type: Optional[str] = None):
+    """
+    火山云自动续费巡检任务 - 协调器函数
+    """
+    assert resource_type is not None, "资源类型不允许为空"
+
+    try:
+        # 1. 查询实例
+        instances = query_monthly_paid_instances(cloud_name, resource_type)
+        if not instances:
+            return
+
+        # 2. 过滤包年包月实例
+        filtered_instances = filter_monthly_paid_instances(instances)
+
+        # 3. 分组
+        region_instances = group_instances_by_region_account(filtered_instances)
+
+        # 4. 执行巡检
+        inspection_result = execute_volc_auto_renew_inspection(cloud_name, resource_type, region_instances)
+
+        # 5. 发送通知
+        send_volc_auto_renew_notification(resource_type, inspection_result)
+
+    except Exception as e:
+        logging.error(f"火山云{resource_type}自动续费巡检任务执行失败: {str(e)}")
+        raise
+    else:
+        logging.info(f"火山云{resource_type}自动续费巡检任务执行成功")
+
+
+def volc_auto_renew_task():
+    """
+    火山云自动续费巡检任务
+    """
+
+    @deco(RedisLock("volc_auto_renew_tasks_redis_lock_key"))
+    def index():
+        volc_auto_renew_task_by_resource(resource_type="server")  # 主机
+        volc_auto_renew_task_by_resource(resource_type="lb")  # LB
+        volc_auto_renew_task_by_resource(resource_type="mongodb")  # Mongo
+        volc_auto_renew_task_by_resource(resource_type="redis")  # Redis
+        volc_auto_renew_task_by_resource(resource_type="mysql")  # Mysql
+        volc_auto_renew_task_by_resource(resource_type="cluster")  # k8s
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"火山云自动续费巡检任务出错 {str(err)}")
+
+
+def execute_qcloud_auto_renew_inspection(
+    cloud_name: str, resource_type: str, instances: List
+) -> Optional[InspectorResult]:
+    """
+    执行腾讯云自动续费巡检
+    """
+    if not instances:
+        return None
+
+    instances_objs = []
+    for region, account_id, instance_id, ext_info in instances:
+        instances_objs.append(dict(region=region, account_id=account_id, instance_id=instance_id, ext_info=ext_info))
+
+    _inspector = QCloudAutoRenewInspector(instance_objs=instances_objs)
+    result = _inspector.run()
+
+    if not result.success:
+        logging.error(f"腾讯云自动续费巡检任务出错 {result.message}")
+        return None
+
+    return result
+
+
+def send_qcloud_auto_renew_notification(resource_type: str, result: InspectorResult):
+    """
+    发送腾讯云自动续费巡检通知
+    """
+    if not result or not result.data:
+        logging.info("巡检完成, 未发现需要关注的自动续费实例")
+        return
+
+    should_at_user = result.status == InspectorStatus.EXCEPTION
+    send_feishu_notification(
+        message=f"腾讯云{resource_type}自动续费巡检结果",
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user,
+        message_type="instance",
+        title=f"腾讯云{resource_type}自动续费巡检结果",
+        instances=result.data,
+    )
+
+
+def qcloud_auto_renew_task_by_resource(cloud_name: str = "qcloud", resource_type: Optional[str] = None):
+    """
+    腾讯云自动续费巡检任务
+    """
+    assert resource_type is not None, "资源类型不允许为空"
+
+    try:
+        # 1. 查询实例
+        instances = query_monthly_paid_instances(cloud_name, resource_type)
+        if not instances:
+            return
+
+        # 2. 执行巡检
+        result = execute_qcloud_auto_renew_inspection(cloud_name, resource_type, instances)
+
+        # 3. 发送通知
+        send_qcloud_auto_renew_notification(resource_type, result)
+
+    except Exception as e:
+        logging.error(f"腾讯云{resource_type}自动续费巡检任务执行失败: {str(e)}")
+        raise
+    else:
+        logging.info(f"腾讯云{resource_type}自动续费巡检任务执行成功")
+
+
+def qcloud_auto_renew_task():
+    """
+    腾讯云续费巡检任务
+    """
+
+    @deco(RedisLock("qcloud_auto_renew_tasks_redis_lock_key"))
+    def index():
+        qcloud_auto_renew_task_by_resource(resource_type="server")  # 主机
+        qcloud_auto_renew_task_by_resource(resource_type="lb")  # LB
+        qcloud_auto_renew_task_by_resource(resource_type="redis")  # Redis
+        qcloud_auto_renew_task_by_resource(resource_type="mongodb")  # Mongo
+        qcloud_auto_renew_task_by_resource(resource_type="mysql")  # Mysql
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"腾讯云续费巡检任务出错 {str(err)}")
+
+
+def send_feishu_notification(
+    message: str,
+    notify_configs: Optional[Dict[str, any]] = None,
+    should_at_user: bool = False,
+    message_type: str = "text",  # 消息类型 text/card/instance
+    title: Optional[str] = None,
+    instances: List[Dict[str, any]] = None,
+) -> None:
+    """
+    发送飞书通知
+    :param message: 消息内容
+    :param notify_configs: 通知配置列表
+    :param should_at_user: 是否@用户
+    :param message_type: 消息类型 text/card/instance
+    :param title: 卡片标题
+    :param instances: 实例列表
+    """
+    if not notify_configs or not isinstance(notify_configs, dict):
+        return
+
+    billing_notify_configs = notify_configs.get("billing", [])
+    if not billing_notify_configs:
+        return
+
+    for billing_notify_config in billing_notify_configs:
+        if billing_notify_config.get("type") != "feishu":
+            continue
+        try:
+            bot = FeishuBot(
+                webhook_url=billing_notify_config.get("webhook_url"),
+                secret=billing_notify_config.get("secret"),
+            )
+            if message_type == "instance":
+                # 发送实例消息（使用模板）
+                if not title or not instances:
+                    logging.warning("实例消息缺少必要参数(title或instances)，跳过发送")
+                    continue
+                bot.send_instance_message(title=title, instances=instances, should_at_user=should_at_user)
+                logging.info(f"飞书实例消息发送成功: {title}, 实例数量: {len(instances)}")
+            elif message_type == "card":
+                # 发送卡片消息
+                if not title or not message:
+                    logging.warning("卡片消息缺少必要参数(title或message)，跳过发送")
+                    continue
+                bot.send_card_message(title=title, content=message, should_at_user=should_at_user)
+                logging.info(f"飞书卡片消息发送成功: {title}")
+            elif message_type == "text":
+                # 发送文本消息
+                bot.send_text_message(message, should_at_user=should_at_user)
+                logging.info(f"飞书文本消息发送成功: {message}")
+            else:
+                logging.warning(f"不支持的消息类型: {message_type}，跳过发送")
+                continue
+
+        except Exception as e:
+            logging.error(f"发送飞书通知失败: {e}")
+
+
+def volc_billing_task(cloud_name="volc"):
+    """
+    火山云账单巡检任务
+    """
+
+    @deco(RedisLock("volc_billing_tasks_redis_lock_key"))
+    def index():
+        logging.info("开始火山云账单巡检任务")
+        cloud_settings = get_cloud_config(cloud_name)
+        for cloud_setting in cloud_settings:
+            billing_obj = VolCBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region=cloud_setting["region"],
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = VolCBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("volc_billing_threshold"),
+            )
+            result = billing_inspector.run()
+            if not result.success:
+                # 巡检异常
+                logging.error(f"火山云账单巡检异常 {result.message}")
+                return
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
+
+        logging.info("火山云账户巡检任务结束")
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"火山云账单巡检任务出错 {str(err)}")
+
+
+def qcloud_billing_task():
+    """
+    腾讯云账单巡检任务
+    """
+
+    @deco(RedisLock("qcloud_billing_tasks_redis_lock_key"))
+    def index():
+        logging.info("开始腾讯云账单巡检任务")
+        cloud_settings = get_cloud_config("qcloud")
+        for cloud_setting in cloud_settings:
+            region = cloud_setting["region"]
+            # 任意region
+            if "," in region:
+                region = region.split(",")[0]
+            billing_obj = QCloudBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region=region,
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = QCloudBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("qcloud_billing_threshold"),
+            )
+            result = billing_inspector.run()
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
+        logging.info("腾讯云账户巡检任务结束")
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"腾讯云账单巡检任务出错 {str(err)}")
+
+
 def init_scheduled_tasks():
     """
     初始化定时任务
@@ -236,3 +639,11 @@ def init_scheduled_tasks():
     )
     scheduler.add_job(bind_agent_tasks, "cron", minute="*/3", id="bind_agents_tasks", max_instances=1)
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
+    scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
+    scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
+    scheduler.add_job(volc_billing_task, "cron", hour=10, minute=0, id="volc_billing_task", max_instances=1)
+    scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=0, id="qcloud_billing_task", max_instances=1)
+
+
+if __name__ == "__main__":
+    pass

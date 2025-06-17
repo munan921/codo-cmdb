@@ -9,10 +9,12 @@ Desc   :  腾讯云CDB自动发现
 
 import json
 import logging
-from typing import *
-from tencentcloud.common import credential
+from typing import Any, Dict, List, Optional, Tuple
+
 from tencentcloud.cdb.v20170320 import cdb_client, models
-from models.models_utils import mark_expired, mysql_task, mark_expired_by_sync
+from tencentcloud.common import credential
+
+from models.models_utils import mark_expired, mark_expired_by_sync, mysql_task
 
 
 def get_run_type(val):
@@ -21,25 +23,26 @@ def get_run_type(val):
     :param val:
     :return:
     """
-    run_map = {
-        0: "创建中",
-        1: "运行中",
-        5: "隔离中"
-    }
-    return run_map.get(val, '未知')
+    run_map = {0: "创建中", 1: "运行中", 5: "隔离中"}
+    return run_map.get(val, "未知")
 
 
 def get_pay_type(val):
-    pay_map = {
-        1: "包年包月",
-        0: "按量付费"
-    }
-    return pay_map.get(val, '未知')
+    # https://cloud.tencent.com/document/api/236/15878#InstanceInfo
+    pay_map = {0: "包年包月", 1: "按量付费"}
+    return pay_map.get(val, "未知")
+
+
+def get_renew_type(val):
+    if not val:
+        return ""
+    auto_renew_map = {0: "手动续费", 1: "自动续费", 2: "手动续费"}
+    return auto_renew_map.get(val, "未知")
 
 
 class QCloudCDB:
     def __init__(self, access_id: str, access_key: str, region: str, account_id: str):
-        self.cloud_name = 'qcloud'
+        self.cloud_name = "qcloud"
         self._offset = 0  # 偏移量,这里拼接的时候必须是字符串
         self._limit = 100  # 官方默认是20，大于100 需要设置偏移量再次请求：offset=100,offset={机器总数}
         self._region = region
@@ -48,17 +51,13 @@ class QCloudCDB:
         self.client = cdb_client.CdbClient(self.__cred, self._region)
 
     def get_all_cdb(self):
-
         cdb_list = []
         limit = self._limit
         offset = self._offset
         req = models.DescribeDBInstancesRequest()
         try:
             while True:
-                params = {
-                    "Offset": offset,
-                    "Limit": limit
-                }
+                params = {"Offset": offset, "Limit": limit}
                 req.from_json_string(json.dumps(params))
                 resp = self.client.DescribeDBInstances(req)
                 if not resp.Items:
@@ -83,26 +82,27 @@ class QCloudCDB:
         res: Dict[str, Any] = dict()
 
         vpc_id = data.UniqVpcId
-        network_type = '经典网络' if not vpc_id else '专有网络'
-        res['instance_id'] = data.InstanceId
-        res['vpc_id'] = vpc_id
+        network_type = "经典网络" if not vpc_id else "专有网络"
+        res["instance_id"] = data.InstanceId
+        res["vpc_id"] = vpc_id
 
-        res['create_time'] = data.CreateTime
-        res['network_type'] = network_type
-        res['charge_type'] = get_pay_type(data.PayType)
-        res['region'] = data.Region
-        res['zone'] = data.Zone
+        res["create_time"] = data.CreateTime
+        res["network_type"] = network_type
+        res["charge_type"] = get_pay_type(data.PayType)
+        res["renew_type"] = get_renew_type(data.AutoRenew)
+        res["region"] = data.Region
+        res["zone"] = data.Zone
 
-        res['name'] = data.InstanceName
-        res['state'] = get_run_type(data.Status)
+        res["name"] = data.InstanceName
+        res["state"] = get_run_type(data.Status)
         # 腾讯云CDB没有实例类型
         # res['db_class'] = '{cpu}C/{memory}G/{disk}G'.format(cpu=data.Cpu, memory=(int(data.Memory / 1000)),
         #                                                     disk=data.Volume)
-        res['db_class'] = f"{data.Cpu}C/{(int(data.Memory / 1000))}G/{data.Volume}G"
-        res['db_engine'] = 'MySQL'
-        res['db_version'] = data.EngineVersion
+        res["db_class"] = f"{data.Cpu}C/{(int(data.Memory / 1000))}G/{data.Volume}G"
+        res["db_engine"] = "MySQL"
+        res["db_version"] = data.EngineVersion
         # 地址,存JSON主要是为了适配其他云格式一致
-        res['db_address'] = {
+        res["db_address"] = {
             "items": [
                 {
                     "endpoint_type": "Primary",
@@ -122,21 +122,28 @@ class QCloudCDB:
         }
         return res
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'qcloud', resource_type: Optional[str] = 'mysql') -> Tuple[
-        bool, str]:
+    def sync_cmdb(
+        self, cloud_name: Optional[str] = "qcloud", resource_type: Optional[str] = "mysql"
+    ) -> Tuple[bool, str]:
         """
         资产信息更新到DB
         :return:
         """
         all_cdb_list: List[dict] = self.get_all_cdb()
-        if not all_cdb_list: return False, "CDB列表为空"
+        if not all_cdb_list:
+            return False, "CDB列表为空"
         # 更新资源
         ret_state, ret_msg = mysql_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_cdb_list)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [cdb['instance_id'] for cdb in all_cdb_list]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [cdb["instance_id"] for cdb in all_cdb_list]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
 
         return ret_state, ret_msg
 
@@ -268,5 +275,5 @@ class QCloudCDB:
 #         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

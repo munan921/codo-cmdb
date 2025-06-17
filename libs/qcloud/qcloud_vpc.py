@@ -10,10 +10,12 @@ Desc    : 腾讯云 虚拟局域网
 
 import json
 import logging
-from typing import *
+from typing import Any, Dict, List, Optional, Tuple
+
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import vpc_client, models
-from models.models_utils import vpc_task, mark_expired, mark_expired_by_sync
+from tencentcloud.vpc.v20170312 import models, vpc_client
+
+from models.models_utils import mark_expired, mark_expired_by_sync, vpc_task
 
 
 class QCloudCVPC:
@@ -32,10 +34,7 @@ class QCloudCVPC:
         offset = self._offset
         try:
             while True:
-                params = {
-                    "Offset": str(offset),
-                    "Limit": str(limit)
-                }
+                params = {"Offset": str(offset), "Limit": str(limit)}
                 self.req.from_json_string(json.dumps(params))
                 resp = self.client.DescribeVpcs(self.req)
 
@@ -51,31 +50,37 @@ class QCloudCVPC:
     def format_data(self, data) -> Dict[str, Any]:
         res: Dict[str, Any] = dict()
         # print(data)
-        res['instance_id'] = data.VpcId
-        res['vpc_name'] = data.VpcName
-        res['region'] = self._region
-        res['create_time'] = data.CreatedTime
-        res['is_default'] = data.IsDefault
-        res['cidr_block_v4'] = data.CidrBlock
-        res['cidr_block_v6'] = data.Ipv6CidrBlock
+        res["instance_id"] = data.VpcId
+        res["vpc_name"] = data.VpcName
+        res["region"] = self._region
+        res["create_time"] = data.CreatedTime
+        res["is_default"] = data.IsDefault
+        res["cidr_block_v4"] = data.CidrBlock
+        res["cidr_block_v6"] = data.Ipv6CidrBlock
 
         return res
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'qcloud', resource_type: Optional[str] = 'vpc') -> Tuple[bool, str]:
+    def sync_cmdb(self, cloud_name: Optional[str] = "qcloud", resource_type: Optional[str] = "vpc") -> Tuple[bool, str]:
         """
         同步CMDB
         """
         all_vpc_list: List[list, Any, None] = self.get_all_vpc()
 
-        if not all_vpc_list:  return False, "VPC列表为空"
+        if not all_vpc_list:
+            return False, "VPC列表为空"
         # 同步资源
         ret_state, ret_msg = vpc_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_vpc_list)
 
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [vpc['instance_id'] for vpc in all_vpc_list]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [vpc["instance_id"] for vpc in all_vpc_list]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
 
         return ret_state, ret_msg
 
@@ -98,10 +103,7 @@ class QCloudNetwork:
         offset = self._offset
         try:
             while True:
-                params = {
-                    "Offset": offset,
-                    "Limit": limit
-                }
+                params = {"Offset": offset, "Limit": limit}
                 self.req.from_json_string(json.dumps(params))
                 resp = self.client.DescribeNetworkInterfaces(self.req)
                 if not resp.NetworkInterfaceSet:
@@ -131,7 +133,8 @@ class QCloudNetwork:
 
     def index(self):
         network_set = self.get_all_network_interface()
-        if not network_set and not isinstance(network_set, list): return False
+        if not network_set and not isinstance(network_set, list):
+            return False
 
         for nw in network_set:
             print(nw)

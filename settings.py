@@ -74,6 +74,22 @@ GCP_SYNC = os.getenv("GCP_SYNC", "no")
 # 服务树告警忽略配置. e.g: "item1,,,item2,,,item3"
 INGORE_TREE_ALERT_KEYWORDS = os.getenv("IGNORE_TREE_ALERT_ITEMS", "tke-,,,node-00,,,as-tke-,,,k8s-")
 
+# 腾讯云账单余额告警阈值
+QCLOUD_BILLING_THRESHOLD = os.getenv("QCLOUD_BILLING_THRESHOLD", "1000000.0")
+# 火山云账单余额告警阈值
+VOLC_BILLING_THRESHOLD = os.getenv("VOLC_BILLING_THRESHOLD", "200000.0")
+
+# 账单告警通知配置
+NOTIFY_CONFIGS = {
+    "billing": [
+        {
+            "type": "feishu",
+            "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
+            "secret": "xxx",
+        }
+    ]
+}
+
 try:
     from local_settings import *
 except ImportError:
@@ -97,6 +113,9 @@ settings = dict(
     ignore_tree_alert_keywords=INGORE_TREE_ALERT_KEYWORDS,
     kafka_topic=KAFKA_TOPIC,
     gcp_sync=GCP_SYNC,
+    volc_billing_threshold=VOLC_BILLING_THRESHOLD,
+    qcloud_billing_threshold=QCLOUD_BILLING_THRESHOLD,
+    notify_configs=NOTIFY_CONFIGS,
     app_name="cmdb",
     databases={
         const.DEFAULT_DB_KEY: {

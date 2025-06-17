@@ -7,12 +7,14 @@ Date   : 2023/1/27 11:02
 Desc   : 腾讯云 Redis
 """
 
-import logging
-from typing import *
-from models.models_utils import redis_task, mark_expired, mark_expired_by_sync
 import json
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 from tencentcloud.common import credential
-from tencentcloud.redis.v20180412 import redis_client, models
+from tencentcloud.redis.v20180412 import models, redis_client
+
+from models.models_utils import mark_expired, mark_expired_by_sync, redis_task
 
 
 def get_run_type(val):
@@ -28,7 +30,7 @@ def get_run_type(val):
         -2: "已隔离",
         -3: "待删除",
     }
-    return run_map.get(val, '未知')
+    return run_map.get(val, "未知")
 
 
 def get_product_type(val):
@@ -52,26 +54,26 @@ def get_type_version(val):
         9: "5.0集群版",
         15: "6.2标准版",
         16: "6.2集群版",
-
     }
     return version_map.get(val, val)
 
 
 def get_pay_type(val):
-    pay_map = {
-        1: "包年包月",
-        0: "按量付费",
-        'prepaid': "包年包月",
-        'postpaid': "按量付费"
-    }
-    return pay_map.get(val, '未知')
+    pay_map = {1: "包年包月", 0: "按量付费", "prepaid": "包年包月", "postpaid": "按量付费"}
+    return pay_map.get(val, "未知")
+
+
+def get_renew_type(val):
+    if not val:
+        return ""
+    return {1: "自动续费", 0: "手动续费"}.get(val, "未知")
 
 
 class QCloudRedis:
-    def __init__(self, access_id: Optional[str], access_key: Optional[str], region: Optional[str],
-                 account_id: Optional[str]):
-
-        self.cloud_name = 'qcloud'
+    def __init__(
+        self, access_id: Optional[str], access_key: Optional[str], region: Optional[str], account_id: Optional[str]
+    ):
+        self.cloud_name = "qcloud"
         self._offset = 0  # 偏移量,这里拼接的时候必须是字符串
         self._limit = 100  # 官方默认是20，大于100 需要设置偏移量再次请求：offset=100,offset={机器总数}
         self._region = region
@@ -80,17 +82,13 @@ class QCloudRedis:
         self.client = redis_client.RedisClient(self.__cred, self._region)
 
     def get_all_redis(self):
-
         redis_list = []
         limit = self._limit
         offset = self._offset
         req = models.DescribeInstancesRequest()
         try:
             while True:
-                params = {
-                    "Offset": offset,
-                    "Limit": limit
-                }
+                params = {"Offset": offset, "Limit": limit}
                 req.from_json_string(json.dumps(params))
                 resp = self.client.DescribeInstances(req)
                 if not resp.InstanceSet:
@@ -106,64 +104,63 @@ class QCloudRedis:
         res: Dict[str, Any] = dict()
 
         vpc_id = data.UniqVpcId
-        network_type = '经典网络' if not vpc_id else '专有网络'
+        network_type = "经典网络" if not vpc_id else "专有网络"
 
-        res['instance_id'] = data.InstanceId
-        res['vpc_id'] = vpc_id
-        res['vswitch_id'] = data.UniqSubnetId
-        res['create_time'] = data.Createtime
-        res['charge_type'] = get_pay_type(data.BillingMode)
-        res['region'] = self._region
-        res['zone'] = self._region
+        res["instance_id"] = data.InstanceId
+        res["vpc_id"] = vpc_id
+        res["vswitch_id"] = data.UniqSubnetId
+        res["create_time"] = data.Createtime
+        res["charge_type"] = get_pay_type(data.BillingMode)
+        if hasattr(data, "AutoRenewFlag"):
+            res["renew_type"] = get_renew_type(data.AutoRenewFlag)
+        res["region"] = self._region
+        res["zone"] = self._region
         try:
-            res['az_mode'] = data.AzMode
+            res["az_mode"] = data.AzMode
         except Exception as err:
-            res['az_mode'] = ''
-        res['qps'] = ''
-        res['name'] = data.InstanceName
-        res['instance_class'] = f'{data.Size}MB'
-        res['instance_arch'] = get_product_type(data.ProductType)
-        res['instance_type'] = data.Engine
-        res['instance_version'] = get_type_version(data.Type)
-        res['state'] = get_run_type(data.Status)
-        res['network_type'] = network_type
-        res['instance_address'] = {
+            res["az_mode"] = ""
+        res["qps"] = ""
+        res["name"] = data.InstanceName
+        res["instance_class"] = f"{data.Size}MB"
+        res["instance_arch"] = get_product_type(data.ProductType)
+        res["instance_type"] = data.Engine
+        res["instance_version"] = get_type_version(data.Type)
+        res["state"] = get_run_type(data.Status)
+        res["network_type"] = network_type
+        res["instance_address"] = {
             "items": [
-                {
-                    "type": "private",
-                    "ip": data.WanIp,
-                    "domain": "",
-                    "port": str(data.Port)
-                },
-                {
-                    "type": "public",
-                    "ip": '',
-                    "domain": "",
-                    "port": ''
-                }
+                {"type": "private", "ip": data.WanIp, "domain": "", "port": str(data.Port)},
+                {"type": "public", "ip": "", "domain": "", "port": ""},
             ]
         }
 
         return res
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'qcloud', resource_type: Optional[str] = 'redis') -> Tuple[
-        bool, str]:
+    def sync_cmdb(
+        self, cloud_name: Optional[str] = "qcloud", resource_type: Optional[str] = "redis"
+    ) -> Tuple[bool, str]:
         """
         资产信息更新到DB
         :return:
         """
         all_redis_list: List[dict] = self.get_all_redis()
-        if not all_redis_list: return False, "redis列表为空"
+        if not all_redis_list:
+            return False, "redis列表为空"
         # 更新资源
         ret_state, ret_msg = redis_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_redis_list)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [redis['instance_id'] for redis in all_redis_list]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [redis["instance_id"] for redis in all_redis_list]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
 
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass

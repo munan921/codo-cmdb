@@ -9,27 +9,27 @@
 
 import json
 import logging
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import volcenginesdkcore
 import volcenginesdknatgateway
 from volcenginesdkcore.rest import ApiException
-from volcenginesdkecs import ECSApi, DescribeInstancesRequest
-from volcenginesdknatgateway import DescribeNatGatewaysRequest, DescribeNatGatewayAttributesRequest, DescribeNatGatewaysResponse, \
-    DescribeNatGatewayAttributesResponse
+from volcenginesdkecs import DescribeInstancesRequest, ECSApi
+from volcenginesdknatgateway import (
+    DescribeNatGatewayAttributesRequest,
+    DescribeNatGatewayAttributesResponse,
+    DescribeNatGatewaysRequest,
+    DescribeNatGatewaysResponse,
+)
 
-from models.models_utils import nat_task, mark_expired, mark_expired_by_sync
 from libs.volc.volc_vpc import VolCVPC
+from models.models_utils import mark_expired, mark_expired_by_sync, nat_task
 
 
 def get_run_type(val):
-    run_map = {
-        "Creating": "创建中",
-        "Pending": "操作中",
-        "Deleting": "删除中",
-        "Available": "运行中"
-    }
-    return run_map.get(val, '未知')
+    run_map = {"Creating": "创建中", "Pending": "操作中", "Deleting": "删除中", "Available": "运行中"}
+    return run_map.get(val, "未知")
+
 
 def get_spec_type(val):
     return {
@@ -37,8 +37,8 @@ def get_spec_type(val):
         "Medium": "中型",
         "Large": "大型",
         "Extra_Large_1": "超大型-1",
-        "Extra_Large_2": "超大型-2"
-    }.get(val, '未知')
+        "Extra_Large_2": "超大型-2",
+    }.get(val, "未知")
 
 
 def get_pay_type(val):
@@ -47,27 +47,23 @@ def get_pay_type(val):
         2: "按量计费-按规格计费",
         3: "按量计费-按使用量计费",
     }
-    return pay_map.get(val, '未知')
+    return pay_map.get(val, "未知")
+
 
 def get_network_type(val):
-    return {
-        "internet": "公网",
-        "intranet": "私网"
-    }.get(val, '未知')
+    return {"internet": "公网", "intranet": "私网"}.get(val, "未知")
 
 
 class VolNAT:
-    def __init__(self, access_id: str, access_key: str, region: str,
-                 account_id: str):
-        self.cloud_name = 'volc'
+    def __init__(self, access_id: str, access_key: str, region: str, account_id: str):
+        self.cloud_name = "volc"
         self.page_number = 1  # 实例状态列表的页码。起始值：1 默认值：1
         self.page_size = 100  # 分页查询时设置的每页行数。最大值：100 默认值：10
         self._region = region
         self._account_id = account_id
         self._access_id = access_id
         self._access_key = access_key
-        self.api_instance = self.initialize_api_instance(access_id, access_key,
-                                                         region)
+        self.api_instance = self.initialize_api_instance(access_id, access_key, region)
 
     @staticmethod
     def initialize_api_instance(access_id, access_key, region):
@@ -79,7 +75,7 @@ class VolNAT:
         return volcenginesdknatgateway.NATGATEWAYApi()
 
     def describe_nat_gateways(self) -> Optional[DescribeNatGatewaysResponse]:
-        """ 查询NAT网关实例列表
+        """查询NAT网关实例列表
         https://api.volcengine.com/api-docs/view?serviceCode=natgateway&version=2020-04-01&action=DescribeNatGateways
         """
         try:
@@ -99,7 +95,7 @@ class VolNAT:
         :return:
         """
         try:
-            instance_request = DescribeNatGatewayAttributesRequest(nat_gateway_id==nat_gateway_id)
+            instance_request = DescribeNatGatewayAttributesRequest(nat_gateway_id == nat_gateway_id)
             resp = self.api_instance.describe_nat_gateway_attributes(instance_request)
             return resp
         except ApiException as e:
@@ -107,7 +103,7 @@ class VolNAT:
             return None
 
     def get_all_nat_gateways(self) -> List[Dict[str, str]]:
-        """ 
+        """
         分页查询所有NAT网关实例并处理数据
         """
         nat_gateways_list = []
@@ -132,36 +128,38 @@ class VolNAT:
         res: Dict[str, Any] = dict()
         try:
             network_interface_id = data.network_interface_id
-            res['instance_id'] = data.nat_gateway_id
-            res['vpc_id'] = data.vpc_id
-            res['state'] = get_run_type(data.status)
-            res['name'] = data.nat_gateway_name
-            res['network_type'] = get_network_type(data.network_type)
-            res['network_interface_id'] = network_interface_id
-            res['charge_type'] = get_pay_type(data.billing_type)
-            res['project_name'] = data.project_name
-            res['spec'] = get_spec_type(data.spec)
+            res["instance_id"] = data.nat_gateway_id
+            res["vpc_id"] = data.vpc_id
+            res["state"] = get_run_type(data.status)
+            res["name"] = data.nat_gateway_name
+            res["network_type"] = get_network_type(data.network_type)
+            res["network_interface_id"] = network_interface_id
+            res["charge_type"] = get_pay_type(data.billing_type)
+            res["project_name"] = data.project_name
+            res["spec"] = get_spec_type(data.spec)
 
             # 内外网IP,可能有多个
             eip_addresses = data.eip_addresses
             if isinstance(eip_addresses, list):
                 outer_ip = [eip.eip_address for eip in eip_addresses]
-            res['outer_ip'] = outer_ip
-            res['create_time'] = data.creation_time
-            res['expired_time'] = data.expired_time
-            res['region'] = self._region
-            res['zone'] = data.zone_id
-            res['description'] = data.description
-            res['subnet_id'] = data.subnet_id
+            res["outer_ip"] = outer_ip
+            res["create_time"] = data.creation_time
+            res["expired_time"] = data.expired_time
+            res["region"] = self._region
+            res["zone"] = data.zone_id
+            res["description"] = data.description
+            res["subnet_id"] = data.subnet_id
+            # NOTE 为了统一风格，方便后续查询
+            res["ext_info"] = {
+                "charge_type": get_pay_type(data.billing_type),
+            }
 
         except Exception as err:
             logging.error(f"火山云 process_nat_gateway err. account_id: {self._account_id},  err:{err}")
 
         return res
 
-    def sync_cmdb(self, cloud_name: Optional[str] = 'volc',
-                  resource_type: Optional[str] = 'nat') -> Tuple[
-        bool, str]:
+    def sync_cmdb(self, cloud_name: Optional[str] = "volc", resource_type: Optional[str] = "nat") -> Tuple[bool, str]:
         """
         资产信息更新到DB
         :return:
@@ -170,17 +168,20 @@ class VolNAT:
         if not all_nat_gateway_list:
             return False, "Nat列表为空"
         # 更新资源
-        ret_state, ret_msg = nat_task(account_id=self._account_id, 
-                                      cloud_name=cloud_name,
-                                      rows=all_nat_gateway_list)
+        ret_state, ret_msg = nat_task(account_id=self._account_id, cloud_name=cloud_name, rows=all_nat_gateway_list)
         # 标记过期
         # mark_expired(resource_type=resource_type, account_id=self._account_id)
-        instance_ids = [nat['instance_id'] for nat in all_nat_gateway_list]
-        mark_expired_by_sync(cloud_name=cloud_name, account_id=self._account_id, resource_type=resource_type,
-                             instance_ids=instance_ids, region=self._region)
+        instance_ids = [nat["instance_id"] for nat in all_nat_gateway_list]
+        mark_expired_by_sync(
+            cloud_name=cloud_name,
+            account_id=self._account_id,
+            resource_type=resource_type,
+            instance_ids=instance_ids,
+            region=self._region,
+        )
 
         return ret_state, ret_msg
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass
