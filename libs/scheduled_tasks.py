@@ -561,10 +561,14 @@ def volc_billing_task(cloud_name="volc"):
         logging.info("开始火山云账单巡检任务")
         cloud_settings = get_cloud_config(cloud_name)
         for cloud_setting in cloud_settings:
+            region = cloud_setting["region"]
+            # 任意region
+            if "," in region:
+                region = region.split(",")[0]
             billing_obj = VolCBilling(
                 access_id=cloud_setting["access_id"],
                 access_key=mc.my_decrypt(cloud_setting["access_key"]),
-                region=cloud_setting["region"],
+                region=region,
                 account_id=cloud_setting["account_id"],
             )
             billing_inspector = VolCBillingInspector(
