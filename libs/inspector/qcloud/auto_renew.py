@@ -36,7 +36,7 @@ class QCloudAutoRenewInspector(BaseInspector):
                 result.append(
                     dict(
                         instance_id=instance["instance_id"],
-                        instance_name=instance["name"],
+                        instance_name=instance["instance_name"],
                         renew_type=ext_info.get("renew_type", ""),
                     )
                 )

@@ -6,7 +6,7 @@
 # @Version:  1.1
 # @Desc:     火山云自动续费巡检逻辑
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 from volcenginesdkbilling import ListAvailableInstancesRequest
 
@@ -33,7 +33,7 @@ class VolCAutoRenewInspector(BaseInspector):
             self.logger.warning(f"未获取到有效的实例列表: {response}")
             return InspectorResult(success=False, message="未获取到有效的实例列表", status=InspectorStatus.NORMAL)
 
-        data = self._filter_non_autorenew_instance(response.instance_list)
+        data = list(self._filter_non_autorenew_instance(response.instance_list))
         if not data:
             return InspectorResult(success=True, message="全部实例为自动续费", status=InspectorStatus.NORMAL)
         return InspectorResult(
@@ -41,13 +41,15 @@ class VolCAutoRenewInspector(BaseInspector):
         )
 
     @staticmethod
-    def _filter_non_autorenew_instance(instances: List[Any]) -> List[Dict[str, Any]]:
+    def _filter_non_autorenew_instance(instances: List[Any]) -> Iterator[Dict[str, Any]]:
         """
         过滤出非自动续费实例
         """
-        # FIXME: 自动续费类型为AutoRenewal，手动续费类型为ManualRenewal
-        return [
-            {"instance_id": ins.instance_id, "renew_type": "手动续费", "instance_name": ins.instance_name}
-            for ins in instances
-            if ins.renew_type and ins.renew_type != "AutoRenewal"
-        ]
+        renew_mapping = {"AutoRenewal": "自动续费", "ManualRenewal": "手动续费", "NonRenewal": "到期不续费"}
+        for ins in instances:
+            if ins.renew_type and ins.renew_type != "AutoRenewal":
+                yield {
+                    "instance_id": ins.instance_id,
+                    "renew_type": renew_mapping[ins.renew_type],
+                    "instance_name": ins.instance_name,
+                }
