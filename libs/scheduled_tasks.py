@@ -637,7 +637,7 @@ def init_scheduled_tasks():
     scheduler.add_job(
         notify_unbound_agents_tasks,
         "cron",
-        hour="9-23",
+        hour="10",
         minute=0,
         id="notify_unbound_agents_tasks",
     )
