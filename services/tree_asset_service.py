@@ -582,7 +582,7 @@ def get_tree_server_assets(params: Dict[str, Any]) -> Tuple[Union[list, dict], i
         tree_asset_ids = [tree_asset_id[0] for tree_asset_id in tree_asset_ids.all()]
         if is_fuzzy:
             page = paginate(session.query(AssetServerModels).filter(AssetServerModels.id.in_(tree_asset_ids)).filter(
-                or_(AssetServerModels.inner_ip.like(f"%{search_val}%")), AssetServerModels.name.like(f"%{search_val}%")),
+                or_(AssetServerModels.inner_ip.like(f"%{search_val}%"), AssetServerModels.name.like(f"%{search_val}%"))),
                             **{'page_size': page_size, 'page_number': page_number})
         else:
             page = paginate(session.query(AssetServerModels).filter(AssetServerModels.id.in_(tree_asset_ids)).filter(
