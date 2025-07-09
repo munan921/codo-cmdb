@@ -29,13 +29,12 @@ class VolCBillingInspector(BaseInspector):
         """
         super().__init__()
         try:
-            float(threshold)
+            self.threshold = float(threshold)
         except ValueError:
             raise ValueError("阈值必须为数字")
         if threshold < 0:
             raise ValueError("阈值不能为负数")
         self.client = instance_obj
-        self.threshold = threshold
 
     def run(self) -> InspectorResult:
         """

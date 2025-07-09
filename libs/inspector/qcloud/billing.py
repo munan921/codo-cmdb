@@ -20,13 +20,12 @@ class QCloudBillingInspector(BaseInspector):
     def __init__(self, instance_obj: QCloudBilling, threshold: float = 1000000.0):
         super().__init__()
         try:
-            float(threshold)
+            self.threshold = float(threshold)
         except ValueError:
             raise ValueError("阈值必须为数字")
         if threshold < 0:
             raise ValueError("阈值不能为负数")
         self.instance_obj = instance_obj
-        self.threshold = threshold
 
     def run(self) -> InspectorResult:
         """
@@ -48,7 +47,7 @@ class QCloudBillingInspector(BaseInspector):
         # 余额单位为分，转为元
         total_balance = (credit_amount + real_balance) / 100
         # 计算信用额度 + 当前真实可用余额 < 阈值
-        if total_balance < self.threshold:
+        if float(total_balance) < self.threshold:
             return InspectorResult(
                 success=True,
                 message=f"腾讯云账户可用余额巡检异常，当前余额为{total_balance}元, 小于阈值{self.threshold}元",
