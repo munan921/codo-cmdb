@@ -32,7 +32,7 @@ class VolCBillingInspector(BaseInspector):
             self.threshold = float(threshold)
         except ValueError:
             raise ValueError("阈值必须为数字")
-        if threshold < 0:
+        if self.threshold < 0:
             raise ValueError("阈值不能为负数")
         self.client = instance_obj
 
