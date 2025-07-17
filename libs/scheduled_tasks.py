@@ -23,8 +23,10 @@ from libs.inspector.qcloud.auto_renew import QCloudAutoRenewInspector
 from libs.inspector.qcloud.billing import QCloudBillingInspector
 from libs.inspector.volc.auto_renew import VolCAutoRenewInspector
 from libs.inspector.volc.billing import VolCBillingInspector
+from libs.inspector.aliyun.billing import AliyunBillingInspector
 from libs.mycrypt import MyCrypt
 from libs.qcloud.qcloud_billing import QCloudBilling
+from libs.aliyun.aliyun_billing import AliyunBilling
 from libs.scheduler import scheduler
 from libs.volc.volc_billing import VolCAutoRenew, VolCBilling
 from models import TreeAssetModels, asset_mapping
@@ -326,7 +328,7 @@ def execute_volc_auto_renew_inspection(cloud_name: str, resource_type: str, regi
         batch_size = 100
         for i in range(0, len(instance_ids), batch_size):
             time.sleep(0.1)
-            batch = instance_ids[i : i + batch_size]
+            batch = instance_ids[i: i + batch_size]
             request = VolCAutoRenew.build_request(instance_ids=batch, product=cloud_product_type)
             _inspector = VolCAutoRenewInspector(instance_obj=auto_renew_obj, request=request)
             result = _inspector.run()
@@ -408,7 +410,7 @@ def volc_auto_renew_task():
 
 
 def execute_qcloud_auto_renew_inspection(
-    cloud_name: str, resource_type: str, instances: List
+        cloud_name: str, resource_type: str, instances: List
 ) -> Optional[InspectorResult]:
     """
     执行腾讯云自动续费巡检
@@ -494,12 +496,12 @@ def qcloud_auto_renew_task():
 
 
 def send_feishu_notification(
-    message: str,
-    notify_configs: Optional[Dict[str, any]] = None,
-    should_at_user: bool = False,
-    message_type: str = "text",  # 消息类型 text/card/instance
-    title: Optional[str] = None,
-    instances: List[Dict[str, any]] = None,
+        message: str,
+        notify_configs: Optional[Dict[str, any]] = None,
+        should_at_user: bool = False,
+        message_type: str = "text",  # 消息类型 text/card/instance
+        title: Optional[str] = None,
+        instances: List[Dict[str, any]] = None,
 ) -> None:
     """
     发送飞书通知
@@ -573,7 +575,7 @@ def volc_billing_task(cloud_name="volc"):
             )
             billing_inspector = VolCBillingInspector(
                 instance_obj=billing_obj,
-                threshold=configs.get("volc_billing_threshold"),
+                threshold=configs.get("volc_billing_threshold", 50000),
             )
             result = billing_inspector.run()
             if not result.success:
@@ -615,7 +617,7 @@ def qcloud_billing_task():
             )
             billing_inspector = QCloudBillingInspector(
                 instance_obj=billing_obj,
-                threshold=configs.get("qcloud_billing_threshold"),
+                threshold=configs.get("qcloud_billing_threshold", 50000),
             )
             result = billing_inspector.run()
             should_at_user = result.status == InspectorStatus.EXCEPTION
@@ -628,6 +630,44 @@ def qcloud_billing_task():
         index()
     except Exception as err:
         logging.error(f"腾讯云账单巡检任务出错 {str(err)}")
+
+
+def aliyun_billing_task():
+    """
+    阿里云账单巡检任务
+    """
+
+    @deco(RedisLock("aliyun_billing_tasks_redis_lock_key"))
+    def index():
+        logging.info("开始阿里云账单巡检任务")
+        cloud_settings = get_cloud_config("aliyun")
+        for cloud_setting in cloud_settings:
+            region = cloud_setting["region"]
+            # 任意region
+            if "," in region:
+                region = region.split(",")[0]
+            billing_obj = AliyunBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region=region,
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = AliyunBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("aliyun_billing_threshold", 50000),
+            )
+            logging.error(billing_inspector)
+            result = billing_inspector.run()
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
+        logging.info("阿里云账户巡检任务结束")
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"阿里云账单巡检任务出错 {str(err)}")
 
 
 def init_scheduled_tasks():
@@ -647,6 +687,7 @@ def init_scheduled_tasks():
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
     scheduler.add_job(volc_billing_task, "cron", hour=10, minute=0, id="volc_billing_task", max_instances=1)
     scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=0, id="qcloud_billing_task", max_instances=1)
+    scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=0, id="aliyun_billing_task", max_instances=1)
 
 
 if __name__ == "__main__":
