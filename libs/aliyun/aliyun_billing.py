@@ -6,13 +6,11 @@
 # @Version :   1.0
 # @Desc    :   阿里云账单管理
 
-from typing import Optional
+import json
+from typing import Optional, Any
 
-from alibabacloud_bssopenapi20171214 import models as bss_open_api_20171214_models
-from alibabacloud_bssopenapi20171214.client import Client as BssOpenApi20171214Client
-from alibabacloud_credentials.client import Client as CredentialClient
-from alibabacloud_tea_openapi import models as open_api_models
-from alibabacloud_tea_util import models as util_models
+from aliyunsdkcore.client import AcsClient
+from aliyunsdkcore.request import CommonRequest
 
 
 class AliyunBilling:
@@ -34,39 +32,25 @@ class AliyunBilling:
         """
         self.region = region
         self.account_id = account_id
-        self._client = self._create_client(access_id, access_key)
+        if not access_id or not access_key:
+            raise ValueError("阿里云账单查询需要提供 access_id 和 access_key")
+        self._client = AcsClient(access_id, access_key, region)
 
-    def _create_client(
-        self, access_key_id: Optional[str] = None, access_key_secret: Optional[str] = None
-    ) -> BssOpenApi20171214Client:
-        """
-        创建阿里云BSS OpenAPI客户端
-
-        :param access_key_id: 访问密钥ID
-        :param access_key_secret: 访问密钥Secret
-        :return: BssOpenApi20171214Client
-        """
-        if access_key_id and access_key_secret:
-            config = open_api_models.Config(access_key_id=access_key_id, access_key_secret=access_key_secret)
-        else:
-            # 使用凭据链，支持环境变量、实例角色等方式
-            credential = CredentialClient()
-            config = open_api_models.Config(credential=credential)
-
-        # BSS OpenAPI的endpoint
-        config.endpoint = "business.aliyuncs.com"
-        return BssOpenApi20171214Client(config)
-
-    def query_account_balance(self) -> bss_open_api_20171214_models.QueryAccountBalanceResponse:
+    def query_account_balance(self) -> Any:
         """
         查询账户余额
 
         :return: 账户余额响应
         """
-        runtime = util_models.RuntimeOptions()
         try:
-            response = self._client.query_account_balance_with_options(runtime)
-            return response
+            request = CommonRequest()
+            request.set_domain("business.aliyuncs.com")
+            request.set_version("2017-12-14")
+            request.set_action_name("QueryAccountBalance")
+            request.set_method("POST")
+            request.set_accept_format("json")
+            response = self._client.do_action_with_exception(request)
+            return json.loads(str(response, encoding="utf8"))
         except Exception as error:
             raise Exception(f"查询阿里云账户余额失败: {str(error)}")
 
