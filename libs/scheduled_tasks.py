@@ -637,7 +637,7 @@ def aliyun_billing_task():
     阿里云账单巡检任务
     """
 
-    # @deco(RedisLock("aliyun_billing_tasks_redis_lock_key"))
+    @deco(RedisLock("aliyun_billing_tasks_redis_lock_key"))
     def index():
         logging.info("开始阿里云账单巡检任务")
         cloud_settings = get_cloud_config("aliyun")
