@@ -328,7 +328,7 @@ def execute_volc_auto_renew_inspection(cloud_name: str, resource_type: str, regi
         batch_size = 100
         for i in range(0, len(instance_ids), batch_size):
             time.sleep(0.1)
-            batch = instance_ids[i: i + batch_size]
+            batch = instance_ids[i : i + batch_size]
             request = VolCAutoRenew.build_request(instance_ids=batch, product=cloud_product_type)
             _inspector = VolCAutoRenewInspector(instance_obj=auto_renew_obj, request=request)
             result = _inspector.run()
@@ -410,7 +410,7 @@ def volc_auto_renew_task():
 
 
 def execute_qcloud_auto_renew_inspection(
-        cloud_name: str, resource_type: str, instances: List
+    cloud_name: str, resource_type: str, instances: List
 ) -> Optional[InspectorResult]:
     """
     执行腾讯云自动续费巡检
@@ -496,12 +496,12 @@ def qcloud_auto_renew_task():
 
 
 def send_feishu_notification(
-        message: str,
-        notify_configs: Optional[Dict[str, any]] = None,
-        should_at_user: bool = False,
-        message_type: str = "text",  # 消息类型 text/card/instance
-        title: Optional[str] = None,
-        instances: List[Dict[str, any]] = None,
+    message: str,
+    notify_configs: Optional[Dict[str, any]] = None,
+    should_at_user: bool = False,
+    message_type: str = "text",  # 消息类型 text/card/instance
+    title: Optional[str] = None,
+    instances: List[Dict[str, any]] = None,
 ) -> None:
     """
     发送飞书通知
@@ -656,7 +656,7 @@ def aliyun_billing_task():
                 instance_obj=billing_obj,
                 threshold=configs.get("aliyun_billing_threshold", 50000),
             )
-            logging.error(billing_inspector)
+
             result = billing_inspector.run()
             should_at_user = result.status == InspectorStatus.EXCEPTION
             send_feishu_notification(

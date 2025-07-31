@@ -6,8 +6,8 @@
 # @Version :   1.0
 # @Desc    :   阿里云账单巡检
 
-from libs.inspector.base import BaseInspector, InspectorResult, InspectorStatus
 from libs.aliyun.aliyun_billing import AliyunBilling
+from libs.inspector.base import BaseInspector, InspectorResult, InspectorStatus
 
 
 class AliyunBillingInspector(BaseInspector):
@@ -17,9 +17,7 @@ class AliyunBillingInspector(BaseInspector):
     用于检查阿里云账户的可用余额是否低于设定的阈值
     """
 
-    def __init__(
-            self, instance_obj: AliyunBilling, threshold: float = 1000000.0
-    ):
+    def __init__(self, instance_obj: AliyunBilling, threshold: float = 1000000.0):
         super().__init__()
         try:
             self.threshold = float(threshold)
@@ -34,25 +32,30 @@ class AliyunBillingInspector(BaseInspector):
         执行阿里云账单余额巡检，获取账户余额
         :return: InspectorResult
         """
-        response = self.instance_obj.query_account_balance()
-        if not hasattr(response, "body") or not hasattr(response.body, "data"):
+        try:
+            response = self.instance_obj.query_account_balance()
+        except Exception as e:
             return InspectorResult(
                 success=False,
-                message="未获取到有效的账单余额",
+                message=str(e),
                 status=InspectorStatus.EXCEPTION,
             )
 
-        # 获取账户余额数据
-        balance_data = response.body.data
-        if not hasattr(balance_data, "available_amount"):
+        if response.get("Code") != "200":
+            return InspectorResult(
+                success=False,
+                message=response.get("Message"),
+                status=InspectorStatus.EXCEPTION,
+            )
+
+        # 可用余额
+        available_amount = float(response.get("Data", {}).get("AvailableAmount", "").replace(",", ""))
+        if not available_amount:
             return InspectorResult(
                 success=False,
                 message="未获取到有效的可用余额",
                 status=InspectorStatus.EXCEPTION,
             )
-
-        # 可用余额
-        available_amount = float(balance_data.available_amount.replace(',', ''))
 
         # 检查余额是否低于阈值
         if available_amount < self.threshold:
