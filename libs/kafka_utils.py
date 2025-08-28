@@ -3,6 +3,7 @@
 # @Date: 2025/2/8
 # @Description: Description
 import json
+import logging
 
 from confluent_kafka import Producer
 from websdk2.configs import configs
@@ -40,5 +41,8 @@ class KafkaProducer:
             message = message.encode("utf-8")
         elif not isinstance(message, bytes):
             raise TypeError("message 必须是 dict, str 或 bytes 类型")
-        self.producer.produce(self.topic, message)
-        self.producer.flush()
+        try:
+            self.producer.produce(self.topic, message)
+            self.producer.flush(timeout=2)
+        except Exception as e:
+            logging.error(f"[KafkaProducer]send kafka error: {e}]")

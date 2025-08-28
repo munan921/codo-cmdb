@@ -44,3 +44,11 @@ class SyncLogModels(Base):
     sync_consum = Column('sync_consum', String(120), comment='同步耗时')
     sync_time = Column('sync_time', DateTime(), default=datetime.now, index=True, comment='同步时间')
     loginfo = Column('loginfo', Text(), comment='log')
+
+
+class CloudBillingSettingModels(Base):
+    __tablename__ = 't_cloud_billing_settings' # 云账户账单巡检配置信息
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    threshold =  Column('threshold', String(120), nullable=False, comment='余额阈值')
+    scheduled_expr = Column(String(64), nullable=False, default='0 10 * * *', comment='巡检调度表达式，默认为每天10点')
+    cloud_setting_id = Column('cloud_setting_id', String(120), nullable=False, index=True, comment='云账户配置id')

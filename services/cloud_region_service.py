@@ -93,10 +93,10 @@ def update_server_agent_id_by_cloud_region_rules(asset_group_rules: List[List[Di
             # 兼容5.7版本mysql, 不适用IN查询
             query = session.query(AssetServerModels).filter()
             filters = []
-            for vpc_value in vpc_values:
-                filters.append(func.json_extract(AssetServerModels.ext_info, '$.vpc_id') == vpc_value)
+            if vpc_values:
+                filters.append(AssetServerModels.vpc_id.in_(vpc_values))
 
-            servers = query.filter(or_(*filters)) if filters else query
+            servers = query.filter(*filters) if filters else query
             cnt = 0
             for server in servers:
                 # 跳过已同步的AgentID
@@ -315,10 +315,10 @@ def preview_cloud_region_v2(**params) -> dict:
             query = session.query(AssetServerModels).filter(_get_server_value(value)).filter_by(**filter_map)
             # 兼容5.7版本mysql, 不适用IN查询
             filters = []
-            for vpc_value in vpc_values:
-                filters.append(func.json_extract(AssetServerModels.ext_info, '$.vpc_id') == vpc_value)
+            if vpc_values:
+                filters.append(AssetServerModels.vpc_id.in_(vpc_values))
 
-            query = query.filter(or_(*filters)) if filters else query
+            query = query.filter(*filters) if filters else query
             total = query.count()
             page = paginate(query, order_by=None, **params)
             result = _models_to_list(page.items)
@@ -434,10 +434,10 @@ def get_servers_by_cloud_region_id(region_id: str) -> List[Optional[AssetServerM
             query = session.query(AssetServerModels)
             # 兼容5.7版本mysql, 不适用IN查询
             filters = []
-            for vpc_value in vpc_values:
-                filters.append(func.json_extract(AssetServerModels.ext_info, '$.vpc_id') == vpc_value)
+            if vpc_values:
+                filters.append(AssetServerModels.vpc_id.in_(vpc_values))
 
-            query = query.filter(or_(*filters)) if filters else query
+            query = query.filter(*filters) if filters else query
             servers = query.all()
             return servers
         except Exception as e:

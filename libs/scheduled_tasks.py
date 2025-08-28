@@ -632,6 +632,38 @@ def qcloud_billing_task():
         logging.error(f"腾讯云账单巡检任务出错 {str(err)}")
 
 
+def qcloud_dnspod_billing_task():
+    """
+    腾讯云DNSPOD账单巡检任务
+    """
+    @deco(RedisLock("qcloud_dnspod_billing_tasks_redis_lock_key"))
+    def index():
+        logging.info("开始腾讯云DNSPOD账单巡检任务")
+        cloud_settings = get_cloud_config("dnspod")
+        for cloud_setting in cloud_settings:
+            billing_obj = QCloudBilling(
+                access_id=cloud_setting["access_id"],
+                access_key=mc.my_decrypt(cloud_setting["access_key"]),
+                region="ap-shanghai",
+                account_id=cloud_setting["account_id"],
+            )
+            billing_inspector = QCloudBillingInspector(
+                instance_obj=billing_obj,
+                threshold=configs.get("qcloud_billing_threshold", 50000),
+            )
+            result = billing_inspector.run()
+            should_at_user = result.status == InspectorStatus.EXCEPTION
+            send_feishu_notification(
+                result.message, notify_configs=configs.notify_configs, should_at_user=should_at_user
+            )
+        logging.info("腾讯云账户DNSPOD巡检任务结束")
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"腾讯云DNSPOD账单巡检任务出错 {str(err)}")
+
+
 def aliyun_billing_task():
     """
     阿里云账单巡检任务
@@ -685,9 +717,9 @@ def init_scheduled_tasks():
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
     scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
-    scheduler.add_job(volc_billing_task, "cron", hour=10, minute=0, id="volc_billing_task", max_instances=1)
-    scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=0, id="qcloud_billing_task", max_instances=1)
-    scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=0, id="aliyun_billing_task", max_instances=1)
+    scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
+    scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
+    scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
 
 
 if __name__ == "__main__":
