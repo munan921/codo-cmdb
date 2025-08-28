@@ -3,6 +3,7 @@
 # @Date: 2025/2/8
 # @Description: Description
 import json
+import logging
 
 from confluent_kafka import Producer
 from websdk2.configs import configs
@@ -44,4 +45,4 @@ class KafkaProducer:
             self.producer.produce(self.topic, message)
             self.producer.flush(timeout=2)
         except Exception as e:
-            print("send kafka timeout")
+            logging.error(f"[KafkaProducer]send kafka error: {e}]")
