@@ -26,7 +26,7 @@ from libs.domain.qcloud_domain import QCloud
 # from libs.domain.dnspod_domain import DNSPod
 from libs.domain.godaddy_domain import GoDaddy
 from libs.domain.aliyun_domain import AliYun
-from libs.kafka_utils import KafkaProducer
+from libs.kafka_utils import producer
 from libs.thread_pool import global_executors
 
 from settings import settings
@@ -359,7 +359,6 @@ def after_opt_log_insert(mapper, connection, target):
                 "update_time": target.update_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "id": target.id
             }
-            producer = KafkaProducer()
             producer.send(message)
         except Exception as e:
             logging.error(f"发送操作日志到Kafka失败: {e}")

@@ -26,7 +26,11 @@ class KafkaProducer:
             self.topic = configs[const.KAFKA_TOPIC]
         else:
             self.topic = topic
-        self._create_producer()
+        if not self.bootstrap_servers or not self.topic or not self.client_id:
+            logging.warning("kafka config is not configured")
+            self.producer = None
+        else:
+            self._create_producer()
 
     def _create_producer(self):
         producer_conf = {
@@ -35,7 +39,10 @@ class KafkaProducer:
         }
         self.producer = Producer(producer_conf)
 
-    def send(self, message, timeout=1):
+    def send(self, message, timeout=3):
+        if self.producer is None:
+            logging.warning("kafka producer is not configured")
+            return
         if isinstance(message, dict):  # 如果是字典，转换为 JSON 字符串
             message = json.dumps(message).encode("utf-8")  # 变成 bytes
         elif isinstance(message, str):
@@ -49,3 +56,5 @@ class KafkaProducer:
             logging.info("Kafka 消息发送成功")
         except KafkaException as e:
             logging.error(f"[KafkaProducer]send kafka error: {e}")
+
+producer = KafkaProducer()
