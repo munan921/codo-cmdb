@@ -4,8 +4,9 @@
 # @Description: Description
 import json
 import logging
+import time
 
-from confluent_kafka import Producer
+from confluent_kafka import Producer, KafkaException
 from websdk2.configs import configs
 from websdk2.consts import const
 
@@ -34,7 +35,7 @@ class KafkaProducer:
         }
         self.producer = Producer(producer_conf)
 
-    def send(self, message):
+    def send(self, message, timeout=1):
         if isinstance(message, dict):  # 如果是字典，转换为 JSON 字符串
             message = json.dumps(message).encode("utf-8")  # 变成 bytes
         elif isinstance(message, str):
@@ -43,6 +44,8 @@ class KafkaProducer:
             raise TypeError("message 必须是 dict, str 或 bytes 类型")
         try:
             self.producer.produce(self.topic, message)
-            self.producer.flush(timeout=2)
-        except Exception as e:
-            logging.error(f"[KafkaProducer]send kafka error: {e}]")
+            if self.producer.flush(timeout=timeout) != 0:
+                raise KafkaException(f"Kafka 消息发送超时, 超过{timeout}s")
+            logging.info("Kafka 消息发送成功")
+        except KafkaException as e:
+            logging.error(f"[KafkaProducer]send kafka error: {e}")
