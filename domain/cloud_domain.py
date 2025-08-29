@@ -26,7 +26,7 @@ from libs.domain.qcloud_domain import QCloud
 # from libs.domain.dnspod_domain import DNSPod
 from libs.domain.godaddy_domain import GoDaddy
 from libs.domain.aliyun_domain import AliYun
-from libs.kafka_utils import KafkaProducer
+from libs.kafka_utils import producer
 from libs.thread_pool import global_executors
 
 from settings import settings
@@ -347,22 +347,24 @@ def async_domain_info():
 @event.listens_for(DomainOptLog, "after_insert")
 def after_opt_log_insert(mapper, connection, target):
     """发送操作日志到安全soc"""
-    try:
-        message = {
-            "domain_name": target.domain_name,
-            "username": target.username,
-            "action": target.action,
-            "record": target.record,
-            "state": target.state,
-            "update_time": target.update_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "id": target.id
-        }
-        producer = KafkaProducer()
-        producer.send(message)
-        logging.info(f"发送操作日志到Kafka成功: {message}")
-    except Exception as e:
-        logging.error(f"发送操作日志到Kafka失败: {e}")
 
+    def send_message(target):
+        try:
+            message = {
+                "domain_name": target.domain_name,
+                "username": target.username,
+                "action": target.action,
+                "record": target.record,
+                "state": target.state,
+                "update_time": target.update_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "id": target.id
+            }
+            producer.send(message)
+        except Exception as e:
+            logging.error(f"发送操作日志到Kafka失败: {e}")
+
+    executor = global_executors.general_executor
+    executor.submit(send_message, target)
 
 if __name__ == '__main__':
     pass
