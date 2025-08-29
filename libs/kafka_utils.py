@@ -35,6 +35,8 @@ class KafkaProducer:
     def _create_producer(self):
         producer_conf = {
             "bootstrap.servers": self.bootstrap_servers,
+            "socket.connection.setup.timeout.ms": 3000,  # 连接建立超时 3s
+            "request.timeout.ms": 3000,
             "client.id": self.client_id,
         }
         self.producer = Producer(producer_conf)
