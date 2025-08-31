@@ -720,7 +720,7 @@ def init_scheduled_tasks():
     scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
     scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
     scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
-    scheduler.add_job(qcloud_dnspod_billing_task, "cron", hour=10, minute=5, id="qcloud_dnspod_billing_task", max_instances=1)
+    # scheduler.add_job(qcloud_dnspod_billing_task, "cron", hour=10, minute=5, id="qcloud_dnspod_billing_task", max_instances=1)
 
 
 if __name__ == "__main__":
