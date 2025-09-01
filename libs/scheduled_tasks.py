@@ -15,6 +15,7 @@ from websdk2.configs import configs
 from websdk2.db_context import DBContext
 from websdk2.model_utils import queryset_to_list
 from websdk2.tools import RedisLock
+from apscheduler.triggers.cron import CronTrigger
 
 from libs import deco
 from libs.api_gateway.fs.rebot import FeishuBot
@@ -27,12 +28,12 @@ from libs.inspector.aliyun.billing import AliyunBillingInspector
 from libs.mycrypt import MyCrypt
 from libs.qcloud.qcloud_billing import QCloudBilling
 from libs.aliyun.aliyun_billing import AliyunBilling
-from libs.scheduler import scheduler
+# scheduler import moved inside functions to avoid circular import
 from libs.volc.volc_billing import VolCAutoRenew, VolCBilling
 from models import TreeAssetModels, asset_mapping
 from models.agent import AgentModels
 from models.asset import AgentBindStatus, AssetServerModels
-from models.cloud import CloudSettingModels
+from models.cloud import CloudSettingModels,CloudBillingSettingModels
 from models.models_utils import get_cloud_config
 from services.asset_server_service import get_unique_servers
 from services.cloud_region_service import get_servers_by_cloud_region_id
@@ -702,10 +703,380 @@ def aliyun_billing_task():
         logging.error(f"阿里云账单巡检任务出错 {str(err)}")
 
 
+def _execute_volc_billing(cloud_setting: CloudSettingModels, threshold: float):
+    """执行火山云账单巡检"""
+    region = cloud_setting.region
+    if "," in region:
+        region = region.split(",")[0]
+
+    billing_obj = VolCBilling(
+        access_id=cloud_setting.access_id,
+        access_key=mc.my_decrypt(cloud_setting.access_key),
+        region=region,
+        account_id=cloud_setting.account_id,
+    )
+
+    billing_inspector = VolCBillingInspector(
+        instance_obj=billing_obj,
+        threshold=threshold or configs.get("volc_billing_threshold", 50000),
+    )
+
+    result = billing_inspector.run()
+    if not result.success:
+        logging.error(f"火山云账单巡检异常: {result.message}")
+        return
+
+    should_at_user = result.status == InspectorStatus.EXCEPTION
+    send_feishu_notification(
+        result.message,
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user
+    )
+
+
+def _execute_qcloud_billing(cloud_setting: CloudSettingModels, threshold: float):
+    """执行腾讯云账单巡检"""
+    region = cloud_setting.region
+    if "," in region:
+        region = region.split(",")[0]
+
+    billing_obj = QCloudBilling(
+        access_id=cloud_setting.access_id,
+        access_key=mc.my_decrypt(cloud_setting.access_key),
+        region=region,
+        account_id=cloud_setting.account_id,
+    )
+
+    billing_inspector = QCloudBillingInspector(
+        instance_obj=billing_obj,
+        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
+    )
+
+    result = billing_inspector.run()
+    should_at_user = result.status == InspectorStatus.EXCEPTION
+    send_feishu_notification(
+        result.message,
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user
+    )
+
+
+def _execute_qcloud_dnspod_billing(cloud_setting: CloudSettingModels, threshold: float):
+    """执行腾讯云DNSPOD账单巡检"""
+    billing_obj = QCloudBilling(
+        access_id=cloud_setting.access_id,
+        access_key=mc.my_decrypt(cloud_setting.access_key),
+        region="ap-shanghai",
+        account_id=cloud_setting.account_id,
+    )
+
+    billing_inspector = QCloudBillingInspector(
+        instance_obj=billing_obj,
+        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
+    )
+
+    result = billing_inspector.run()
+    should_at_user = result.status == InspectorStatus.EXCEPTION
+    send_feishu_notification(
+        result.message,
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user
+    )
+
+def _execute_qcloud_billing(cloud_setting: CloudSettingModels, threshold: float):
+    """执行腾讯云账单巡检"""
+    region = cloud_setting.region
+    if "," in region:
+        region = region.split(",")[0]
+
+    billing_obj = QCloudBilling(
+        access_id=cloud_setting.access_id,
+        access_key=mc.my_decrypt(cloud_setting.access_key),
+        region=region,
+        account_id=cloud_setting.account_id,
+    )
+
+    billing_inspector = QCloudBillingInspector(
+        instance_obj=billing_obj,
+        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
+    )
+
+    result = billing_inspector.run()
+    should_at_user = result.status == InspectorStatus.EXCEPTION
+    send_feishu_notification(
+        result.message,
+        notify_configs=configs.notify_configs,
+        should_at_user=should_at_user
+    )
+
+def _execute_aliyun_billing(cloud_setting: CloudSettingModels, threshold: float):
+  """执行阿里云账单巡检"""
+  region = cloud_setting.region
+  if "," in region:
+      region = region.split(",")[0]
+
+  billing_obj = AliyunBilling(
+      access_id=cloud_setting.access_id,
+      access_key=mc.my_decrypt(cloud_setting.access_key),
+      region=region,
+      account_id=cloud_setting.account_id,
+  )
+
+  billing_inspector = AliyunBillingInspector(
+      instance_obj=billing_obj,
+      threshold=threshold or configs.get("aliyun_billing_threshold", 50000),
+  )
+
+  result = billing_inspector.run()
+  should_at_user = result.status == InspectorStatus.EXCEPTION
+  send_feishu_notification(
+      result.message,
+      notify_configs=configs.notify_configs,
+      should_at_user=should_at_user
+  )
+
+def billing_task_v2(cloud_setting_id: int, threshold: float = None):
+    """
+    通用账单巡检任务 v2
+    :param cloud_setting_id: 云配置ID
+    :param threshold: 费用阈值
+    """
+
+    @deco(RedisLock(f"billing_task_v2_{cloud_setting_id}_redis_lock_key"))
+    def index():
+        with DBContext('r', None, None) as session:
+            cloud_setting = session.query(CloudSettingModels).filter_by(id=cloud_setting_id).first()
+
+        if not cloud_setting:
+            logging.error(f"未找到云配置 ID: {cloud_setting_id}")
+            return
+
+        cloud_name = cloud_setting.cloud_name
+        logging.info(f"开始{cloud_name}账单巡检任务, cloud_setting_id: {cloud_setting_id}")
+
+        try:
+            # 根据云厂商类型选择对应的巡检器
+            if cloud_name == "volc":
+                _execute_volc_billing(cloud_setting, threshold)
+            elif cloud_name == "qcloud":
+                _execute_qcloud_billing(cloud_setting, threshold)
+            elif cloud_name == "dnspod":
+                _execute_qcloud_dnspod_billing(cloud_setting, threshold)
+            elif cloud_name == "aliyun":
+                _execute_aliyun_billing(cloud_setting, threshold)
+            else:
+                logging.warning(f"不支持的云厂商: {cloud_name}")
+                return
+
+            logging.info(f"{cloud_name}账单巡检任务完成, cloud_setting_id: {cloud_setting_id}")
+
+        except Exception as e:
+            logging.error(f"{cloud_name}账单巡检任务执行失败: {str(e)}")
+            raise
+
+    try:
+        index()
+    except Exception as err:
+        logging.error(f"账单巡检任务出错 cloud_setting_id: {cloud_setting_id}, error: {str(err)}")
+
+
+def get_billing_job_func(cloud_setting_id: int):
+    """
+    获取账单巡检任务函数
+    :param cloud_setting_id: 云配置ID
+    :return: 可调用的任务函数
+    """
+    with DBContext('r', None, None) as session:
+        cloud_setting = session.query(CloudSettingModels).filter_by(id=cloud_setting_id).first()
+
+    if not cloud_setting:
+        logging.error(f"未找到云配置 ID: {cloud_setting_id}")
+        return None
+
+    # 检查云厂商是否支持账单巡检
+    supported_clouds = ["volc", "qcloud", "dnspod", "aliyun"]
+    if cloud_setting.cloud_name not in supported_clouds:
+        logging.warning(f"云厂商 {cloud_setting.cloud_name} 暂不支持账单巡检")
+        return None
+
+    # 返回一个闭包函数，包含cloud_setting_id参数
+    def job_func(**kwargs):
+        threshold = kwargs.get("threshold")
+        billing_task_v2(cloud_setting_id, threshold)
+
+    return job_func
+
+
+def add_single_billing_task(cloud_setting_id: int) -> bool:
+    """
+    添加单个账单巡检任务
+    """
+    from libs.scheduler import scheduler
+    
+    try:
+        # 1. 查询配置
+        with DBContext('r', None, None) as session:
+            billing_setting = (
+                session.query(CloudBillingSettingModels)
+                .filter_by(cloud_setting_id=cloud_setting_id)
+                .first()
+            )
+
+        if not billing_setting:
+            logging.warning(
+                f"未找到账单配置，无法添加任务: cloud_setting_id={cloud_setting_id}"
+            )
+            return False
+
+        # 2. 检查配置完整性
+        threshold = billing_setting.threshold
+        scheduled_expr = billing_setting.scheduled_expr
+
+        if not scheduled_expr:
+            logging.warning(
+                f"调度表达式为空，跳过任务添加: cloud_setting_id={cloud_setting_id}"
+            )
+            return False
+
+        # 3. 获取任务函数
+        job_func = get_billing_job_func(cloud_setting_id)
+        if not job_func:
+            logging.warning(
+                f"无法获取任务函数，跳过任务添加: cloud_setting_id={cloud_setting_id}"
+            )
+            return False
+
+        # 4. 添加任务
+        job_id = f"billing_task_{cloud_setting_id}"
+        scheduler.add_job(
+            func=job_func,
+            trigger=CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
+            replace_existing=True,  # 如果已存在则替换
+            id=job_id,
+            kwargs={"threshold": threshold},
+            name=job_id,
+        )
+
+        logging.info(
+            f"成功添加账单巡检任务: {job_id}, 调度: {scheduled_expr}, 阈值: {threshold}"
+        )
+        return True
+
+    except Exception as e:
+        logging.error(
+            f"添加账单巡检任务失败: cloud_setting_id={cloud_setting_id}, 错误: {str(e)}"
+        )
+        return False
+
+
+def reload_single_billing_task(cloud_setting_id: int):
+    """
+    重新加载单个账单巡检任务
+    :param cloud_setting_id: 云配置ID
+    :return: 是否成功
+    """
+    from libs.scheduler import scheduler
+
+    try:
+        job_id = f"billing_tasks_{cloud_setting_id}"
+
+        # 1. 移除现有任务（如果存在）
+        try:
+            scheduler.remove_job(job_id)
+            logging.info(f"移除现有账单任务: {job_id}")
+        except Exception:
+            # 任务不存在，忽略错误
+            logging.info(f"账单巡检任务不存在，直接创建: {job_id}")
+
+        # 2. 查询最新配置
+        with DBContext('r', None, None) as session:
+            billing_setting = session.query(CloudBillingSettingModels).filter_by(
+                cloud_setting_id=cloud_setting_id
+            ).first()
+
+        if not billing_setting:
+            logging.warning(f"未找到账单配置，无法重载任务: cloud_setting_id={cloud_setting_id}")
+            return False
+
+        # 3. 检查配置完整性
+        threshold = billing_setting.threshold
+        scheduled_expr = billing_setting.scheduled_expr
+
+        if not scheduled_expr:
+            logging.warning(f"调度表达式为空，跳过任务重载: {cloud_setting_id}")
+            return False
+
+        # 4. 获取任务函数
+        job_func = get_billing_job_func(cloud_setting_id)
+        if not job_func:
+            logging.warning(f"无法获取任务函数，跳过任务重载: {cloud_setting_id}")
+            return False
+
+        # 5. 重新添加任务
+        scheduler.add_job(
+            job_func,
+            CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
+            replace_existing=True,
+            id=job_id,
+            kwargs={"threshold": threshold},
+            name=job_id,
+        )
+
+        logging.info(f"成功重载账单巡检任务: {job_id}, 调度: {scheduled_expr}, 阈值: {threshold}")
+        return True
+
+    except Exception as e:
+        logging.error(f"重载账单巡检任务失败: cloud_setting_id={cloud_setting_id}, 错误: {str(e)}")
+        return False
+
+
+def init_billing_tasks():
+    from libs.scheduler import scheduler
+    
+    with DBContext('r', None, None) as session:
+        cloud_billing_setting_info: List[CloudBillingSettingModels] = session.query(CloudBillingSettingModels).all()
+        cloud_billing_list: List[dict] = queryset_to_list(cloud_billing_setting_info)
+    for item in cloud_billing_list:
+        cloud_setting_id = item.get("cloud_setting_id")
+        threshold = item.get("threshold")
+        scheduled_expr = item.get("scheduled_expr")
+        
+        # 验证 cron 表达式
+        if not scheduled_expr:
+            logging.warning(f"跳过cloud_setting_id={cloud_setting_id}，调度表达式为空")
+            continue
+            
+        try:
+            # 验证 cron 表达式是否有效
+            CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai")
+        except Exception as e:
+            logging.error(f"跳过cloud_setting_id={cloud_setting_id}，无效的cron表达式'{scheduled_expr}': {e}")
+            continue
+        
+        job_func = get_billing_job_func(cloud_setting_id)
+        if not job_func:
+            continue
+            
+        try:
+            scheduler.add_job(
+                job_func,
+                CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
+                replace_existing=True,
+                id=f"billing_{cloud_setting_id}",
+                kwargs={"threshold": threshold},
+                name=f"billing_{cloud_setting_id}",
+            )
+            logging.info(f"成功添加账单任务: billing_task_{cloud_setting_id}, 调度: {scheduled_expr}")
+        except Exception as e:
+            logging.error(f"添加账单任务失败 billing_task_{cloud_setting_id}: {e}")
+
+
 def init_scheduled_tasks():
     """
     初始化定时任务
     """
+    from libs.scheduler import scheduler
+    
     scheduler.add_job(
         notify_unbound_agents_tasks,
         "cron",
@@ -717,10 +1088,11 @@ def init_scheduled_tasks():
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
     scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
-    scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
-    scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
-    scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
+    # scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
+    # scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
+    # scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
     # scheduler.add_job(qcloud_dnspod_billing_task, "cron", hour=10, minute=5, id="qcloud_dnspod_billing_task", max_instances=1)
+    init_billing_tasks()
 
 
 if __name__ == "__main__":
