@@ -319,12 +319,14 @@ def batch_add_server_by_agent_for_api(data: dict) -> CommonResponse:
             for agent_obj in agents:
                 instance_id = uuid(f"{agent_obj.ip}{agent_obj.hostname}")
                 server_obj = insert_or_update(AssetServerModels, f"instance_id='{instance_id}'",
-                                             instance_id=instance_id, cloud_name="register",
+                                             instance_id=instance_id, cloud_name="huanle",
                                              account_id='3bba81a',  # 随机uuid标记post写入
                                              agent_id=agent_obj.agent_id.strip(),
                                              inner_ip=agent_obj.ip,
                                              name=agent_obj.hostname,
                                              agent_bind_status=AgentBindStatus.MANUAL_BIND,
+                                             region="cn-shanghai",
+                                             vpc_id="vpc-huanle",
                                              state="运行中",
                                              ext_info={},
                                              is_expired=False)
