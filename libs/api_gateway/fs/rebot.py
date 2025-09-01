@@ -80,7 +80,7 @@ $rows
         }
         if self.secret:
             timestamp, sign = self.gen_signature()
-            data["signature"] = sign
+            data["sign"] = sign
             data["timestamp"] = timestamp
 
         return self.send_message(data)
