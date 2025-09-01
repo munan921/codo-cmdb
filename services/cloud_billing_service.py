@@ -3,12 +3,14 @@
 # @Date: 2025/8/30
 # @Description: Description
 from typing import List
+from urllib.parse import urlparse
 
 from apscheduler.triggers.cron import CronTrigger
 from websdk2.db_context import DBContextV2 as DBContext
 from websdk2.model_utils import CommonOptView, model_to_dict, queryset_to_list
 
 from libs.scheduled_tasks import reload_single_billing_task
+from libs.mycrypt import mc
 from models.cloud import CloudBillingSettingModels, CloudSettingModels
 
 opt_obj = CommonOptView(CloudBillingSettingModels)
@@ -31,6 +33,18 @@ def validate_cron(expr: str = '') -> bool:
     except Exception as e:
         return False
 
+def validate_webhook_url(url: str = '') -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    parsed = urlparse(url)
+    # URL必须有scheme和netloc
+    if parsed.scheme not in ('http', 'https'):
+        return False
+    if not parsed.netloc:
+        return False
+
+    return True
+
 
 def create_or_update(**data):
     cloud_setting_id = data.get('cloud_setting_id', 0)
@@ -52,10 +66,28 @@ def create_or_update(**data):
     if not validate_cron(scheduled_expr):
         return {"code": -1, "msg": "调度表达式不合法"}
 
+    webhook_url = data.get("webhook_url", "")
+    if not webhook_url:
+        return {"code": -1, "msg": "webhook地址不能为空"}
+
+    webhook_type = data.get("webhook_type", "feishu")
+
+    try:
+        is_valid = validate_webhook_url(webhook_url)
+        if not is_valid:
+            return {"code": -1, "msg": "webhook地址格式不正确"}
+    except ValueError:
+        return {"code": -1, "msg": "webhook地址格式不正确"}
+
+    webhook_secret = data.get("webhook_secret", "").strip()
+
+
     kw = {
         "cloud_setting_id": cloud_setting_id,
         "threshold": threshold,
         "scheduled_expr": scheduled_expr,
+        "webhook_type": webhook_type,
+        "webhook_url": webhook_url,
     }
 
     try:
@@ -66,6 +98,18 @@ def create_or_update(**data):
                 return {"code": -1, "msg": "云厂商配置不存在"}
             existing_obj = session.query(CloudBillingSettingModels).filter(
                 CloudBillingSettingModels.cloud_setting_id == cloud_setting_id).first()
+            if webhook_secret:
+                if not existing_obj:
+                    kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
+                else:
+                    if not existing_obj.webhook_secret:
+                        kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
+                    else:
+                        if webhook_secret != existing_obj.webhook_secret:
+                            kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
+            else:
+                kw["webhook_secret"] = ""
+
             if not existing_obj:
                 session.add(CloudBillingSettingModels(**kw))
             else:

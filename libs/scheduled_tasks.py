@@ -5,6 +5,7 @@
 
 import datetime
 import logging
+import re
 import time
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Set
@@ -703,7 +704,7 @@ def aliyun_billing_task():
         logging.error(f"阿里云账单巡检任务出错 {str(err)}")
 
 
-def _execute_volc_billing(cloud_setting: CloudSettingModels, threshold: float):
+def _execute_volc_billing(cloud_setting: CloudSettingModels, cloud_billing_setting: CloudBillingSettingModels):
     """执行火山云账单巡检"""
     region = cloud_setting.region
     if "," in region:
@@ -718,7 +719,7 @@ def _execute_volc_billing(cloud_setting: CloudSettingModels, threshold: float):
 
     billing_inspector = VolCBillingInspector(
         instance_obj=billing_obj,
-        threshold=threshold or configs.get("volc_billing_threshold", 50000),
+        threshold=float(cloud_billing_setting.threshold),
     )
 
     result = billing_inspector.run()
@@ -727,14 +728,19 @@ def _execute_volc_billing(cloud_setting: CloudSettingModels, threshold: float):
         return
 
     should_at_user = result.status == InspectorStatus.EXCEPTION
-    send_feishu_notification(
+
+    webhook_secret = mc.my_decrypt(cloud_billing_setting.webhook_secret) if cloud_billing_setting.webhook_secret else None
+
+    send_feishu_notification_v2(
         result.message,
-        notify_configs=configs.notify_configs,
+        webhook_type=cloud_billing_setting.webhook_type,
+        webhook_url=cloud_billing_setting.webhook_url,
+        webhook_secret=webhook_secret,
         should_at_user=should_at_user
     )
 
 
-def _execute_qcloud_billing(cloud_setting: CloudSettingModels, threshold: float):
+def _execute_qcloud_billing(cloud_setting: CloudSettingModels, cloud_billing_setting: CloudBillingSettingModels):
     """执行腾讯云账单巡检"""
     region = cloud_setting.region
     if "," in region:
@@ -749,106 +755,125 @@ def _execute_qcloud_billing(cloud_setting: CloudSettingModels, threshold: float)
 
     billing_inspector = QCloudBillingInspector(
         instance_obj=billing_obj,
-        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
+        threshold=float(cloud_billing_setting.threshold),
     )
 
     result = billing_inspector.run()
     should_at_user = result.status == InspectorStatus.EXCEPTION
-    send_feishu_notification(
+
+    webhook_secret = mc.my_decrypt(
+        cloud_billing_setting.webhook_secret) if cloud_billing_setting.webhook_secret else None
+    send_feishu_notification_v2(
         result.message,
-        notify_configs=configs.notify_configs,
+        webhook_type=cloud_billing_setting.webhook_type,
+        webhook_url=cloud_billing_setting.webhook_url,
+        webhook_secret=webhook_secret,
         should_at_user=should_at_user
     )
 
 
-def _execute_qcloud_dnspod_billing(cloud_setting: CloudSettingModels, threshold: float):
-    """执行腾讯云DNSPOD账单巡检"""
-    billing_obj = QCloudBilling(
-        access_id=cloud_setting.access_id,
-        access_key=mc.my_decrypt(cloud_setting.access_key),
-        region="ap-shanghai",
-        account_id=cloud_setting.account_id,
-    )
-
-    billing_inspector = QCloudBillingInspector(
-        instance_obj=billing_obj,
-        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
-    )
-
-    result = billing_inspector.run()
-    should_at_user = result.status == InspectorStatus.EXCEPTION
-    send_feishu_notification(
-        result.message,
-        notify_configs=configs.notify_configs,
-        should_at_user=should_at_user
-    )
-
-def _execute_qcloud_billing(cloud_setting: CloudSettingModels, threshold: float):
-    """执行腾讯云账单巡检"""
+def _execute_aliyun_billing(cloud_setting: CloudSettingModels, cloud_billing_setting: CloudBillingSettingModels):
+    """执行阿里云账单巡检"""
     region = cloud_setting.region
     if "," in region:
         region = region.split(",")[0]
 
-    billing_obj = QCloudBilling(
+    billing_obj = AliyunBilling(
         access_id=cloud_setting.access_id,
         access_key=mc.my_decrypt(cloud_setting.access_key),
         region=region,
         account_id=cloud_setting.account_id,
     )
 
-    billing_inspector = QCloudBillingInspector(
+    billing_inspector = AliyunBillingInspector(
         instance_obj=billing_obj,
-        threshold=threshold or configs.get("qcloud_billing_threshold", 50000),
+        threshold=float(cloud_billing_setting.threshold),
     )
 
     result = billing_inspector.run()
     should_at_user = result.status == InspectorStatus.EXCEPTION
-    send_feishu_notification(
+    webhook_secret = mc.my_decrypt(
+        cloud_billing_setting.webhook_secret) if cloud_billing_setting.webhook_secret else None
+    send_feishu_notification_v2(
         result.message,
-        notify_configs=configs.notify_configs,
+        webhook_type=cloud_billing_setting.webhook_type,
+        webhook_url=cloud_billing_setting.webhook_url,
+        webhook_secret=webhook_secret,
         should_at_user=should_at_user
     )
 
-def _execute_aliyun_billing(cloud_setting: CloudSettingModels, threshold: float):
-  """执行阿里云账单巡检"""
-  region = cloud_setting.region
-  if "," in region:
-      region = region.split(",")[0]
 
-  billing_obj = AliyunBilling(
-      access_id=cloud_setting.access_id,
-      access_key=mc.my_decrypt(cloud_setting.access_key),
-      region=region,
-      account_id=cloud_setting.account_id,
-  )
+def send_feishu_notification_v2(
+    message: str,
+    webhook_type: str,
+    webhook_url: str,
+    webhook_secret: str = None,
+    should_at_user: bool = False,
+    message_type: str = "text",  # 消息类型 text/card/instance
+    title: Optional[str] = None,
+    instances: List[Dict[str, any]] = None,
+) -> None:
+    """
+    发送飞书通知
+    :param webhook_type:
+    :param webhook_secret:
+    :param message: 消息内容
+    :param webhook_url: 通知配置地址
+    :param should_at_user: 是否@用户
+    :param message_type: 消息类型 text/card/instance
+    :param title: 卡片标题
+    :param instances: 实例列表
+    """
+    if webhook_type != "feishu":
+        logging.warning(f"不支持的webhook类型: {webhook_type}")
+        return
+    try:
+        bot = FeishuBot(
+            webhook_url=webhook_url,
+            secret=webhook_secret,
+        )
+        if message_type == "instance":
+            # 发送实例消息（使用模板）
+            if not title or not instances:
+                logging.warning("实例消息缺少必要参数(title或instances)，跳过发送")
+                return
+            bot.send_instance_message(title=title, instances=instances, should_at_user=should_at_user)
+            logging.info(f"飞书实例消息发送成功: {title}, 实例数量: {len(instances)}")
+        elif message_type == "card":
+            # 发送卡片消息
+            if not title or not message:
+                logging.warning("卡片消息缺少必要参数(title或message)，跳过发送")
+                return
+            bot.send_card_message(title=title, content=message, should_at_user=should_at_user)
+            logging.info(f"飞书卡片消息发送成功: {title}")
+        elif message_type == "text":
+            # 发送文本消息
+            bot.send_text_message(message, should_at_user=should_at_user)
+            logging.info(f"飞书文本消息发送成功: {message}")
+        else:
+            logging.warning(f"不支持的消息类型: {message_type}，跳过发送")
 
-  billing_inspector = AliyunBillingInspector(
-      instance_obj=billing_obj,
-      threshold=threshold or configs.get("aliyun_billing_threshold", 50000),
-  )
+    except Exception as e:
+        logging.error(f"发送飞书通知失败: {e}")
 
-  result = billing_inspector.run()
-  should_at_user = result.status == InspectorStatus.EXCEPTION
-  send_feishu_notification(
-      result.message,
-      notify_configs=configs.notify_configs,
-      should_at_user=should_at_user
-  )
 
-def billing_task_v2(cloud_setting_id: int, threshold: float = None):
+def billing_task_v2(cloud_setting_id: int):
     """
     通用账单巡检任务 v2
     :param cloud_setting_id: 云配置ID
-    :param threshold: 费用阈值
     """
-
     @deco(RedisLock(f"billing_task_v2_{cloud_setting_id}_redis_lock_key"))
     def index():
         with DBContext('r', None, None) as session:
             cloud_setting = session.query(CloudSettingModels).filter_by(id=cloud_setting_id).first()
+            cloud_billing_setting = session.query(CloudBillingSettingModels).filter_by(cloud_setting_id=cloud_setting_id).first()
 
         if not cloud_setting:
             logging.error(f"未找到云配置 ID: {cloud_setting_id}")
+            return
+
+        if not cloud_billing_setting:
+            logging.error(f"未找到账单配置 ID: {cloud_setting_id}")
             return
 
         cloud_name = cloud_setting.cloud_name
@@ -857,13 +882,13 @@ def billing_task_v2(cloud_setting_id: int, threshold: float = None):
         try:
             # 根据云厂商类型选择对应的巡检器
             if cloud_name == "volc":
-                _execute_volc_billing(cloud_setting, threshold)
+                _execute_volc_billing(cloud_setting, cloud_billing_setting)
             elif cloud_name == "qcloud":
-                _execute_qcloud_billing(cloud_setting, threshold)
+                _execute_qcloud_billing(cloud_setting, cloud_billing_setting)
             elif cloud_name == "dnspod":
-                _execute_qcloud_dnspod_billing(cloud_setting, threshold)
+                _execute_qcloud_billing(cloud_setting, cloud_billing_setting)
             elif cloud_name == "aliyun":
-                _execute_aliyun_billing(cloud_setting, threshold)
+                _execute_aliyun_billing(cloud_setting, cloud_billing_setting)
             else:
                 logging.warning(f"不支持的云厂商: {cloud_name}")
                 return
@@ -901,72 +926,9 @@ def get_billing_job_func(cloud_setting_id: int):
 
     # 返回一个闭包函数，包含cloud_setting_id参数
     def job_func(**kwargs):
-        threshold = kwargs.get("threshold")
-        billing_task_v2(cloud_setting_id, threshold)
+        billing_task_v2(cloud_setting_id)
 
     return job_func
-
-
-def add_single_billing_task(cloud_setting_id: int) -> bool:
-    """
-    添加单个账单巡检任务
-    """
-    from libs.scheduler import scheduler
-    
-    try:
-        # 1. 查询配置
-        with DBContext('r', None, None) as session:
-            billing_setting = (
-                session.query(CloudBillingSettingModels)
-                .filter_by(cloud_setting_id=cloud_setting_id)
-                .first()
-            )
-
-        if not billing_setting:
-            logging.warning(
-                f"未找到账单配置，无法添加任务: cloud_setting_id={cloud_setting_id}"
-            )
-            return False
-
-        # 2. 检查配置完整性
-        threshold = billing_setting.threshold
-        scheduled_expr = billing_setting.scheduled_expr
-
-        if not scheduled_expr:
-            logging.warning(
-                f"调度表达式为空，跳过任务添加: cloud_setting_id={cloud_setting_id}"
-            )
-            return False
-
-        # 3. 获取任务函数
-        job_func = get_billing_job_func(cloud_setting_id)
-        if not job_func:
-            logging.warning(
-                f"无法获取任务函数，跳过任务添加: cloud_setting_id={cloud_setting_id}"
-            )
-            return False
-
-        # 4. 添加任务
-        job_id = f"billing_task_{cloud_setting_id}"
-        scheduler.add_job(
-            func=job_func,
-            trigger=CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
-            replace_existing=True,  # 如果已存在则替换
-            id=job_id,
-            kwargs={"threshold": threshold},
-            name=job_id,
-        )
-
-        logging.info(
-            f"成功添加账单巡检任务: {job_id}, 调度: {scheduled_expr}, 阈值: {threshold}"
-        )
-        return True
-
-    except Exception as e:
-        logging.error(
-            f"添加账单巡检任务失败: cloud_setting_id={cloud_setting_id}, 错误: {str(e)}"
-        )
-        return False
 
 
 def reload_single_billing_task(cloud_setting_id: int):
@@ -1006,6 +968,7 @@ def reload_single_billing_task(cloud_setting_id: int):
             logging.warning(f"调度表达式为空，跳过任务重载: {cloud_setting_id}")
             return False
 
+
         # 4. 获取任务函数
         job_func = get_billing_job_func(cloud_setting_id)
         if not job_func:
@@ -1018,7 +981,6 @@ def reload_single_billing_task(cloud_setting_id: int):
             CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
             replace_existing=True,
             id=job_id,
-            kwargs={"threshold": threshold},
             name=job_id,
         )
 
@@ -1032,7 +994,7 @@ def reload_single_billing_task(cloud_setting_id: int):
 
 def init_billing_tasks():
     from libs.scheduler import scheduler
-    
+
     with DBContext('r', None, None) as session:
         cloud_billing_setting_info: List[CloudBillingSettingModels] = session.query(CloudBillingSettingModels).all()
         cloud_billing_list: List[dict] = queryset_to_list(cloud_billing_setting_info)
@@ -1040,23 +1002,23 @@ def init_billing_tasks():
         cloud_setting_id = item.get("cloud_setting_id")
         threshold = item.get("threshold")
         scheduled_expr = item.get("scheduled_expr")
-        
+
         # 验证 cron 表达式
         if not scheduled_expr:
             logging.warning(f"跳过cloud_setting_id={cloud_setting_id}，调度表达式为空")
             continue
-            
+
         try:
             # 验证 cron 表达式是否有效
             CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai")
         except Exception as e:
             logging.error(f"跳过cloud_setting_id={cloud_setting_id}，无效的cron表达式'{scheduled_expr}': {e}")
             continue
-        
+
         job_func = get_billing_job_func(cloud_setting_id)
         if not job_func:
             continue
-            
+
         try:
             scheduler.add_job(
                 job_func,
@@ -1066,6 +1028,7 @@ def init_billing_tasks():
                 kwargs={"threshold": threshold},
                 name=f"billing_{cloud_setting_id}",
             )
+
             logging.info(f"成功添加账单任务: billing_task_{cloud_setting_id}, 调度: {scheduled_expr}")
         except Exception as e:
             logging.error(f"添加账单任务失败 billing_task_{cloud_setting_id}: {e}")
@@ -1076,7 +1039,7 @@ def init_scheduled_tasks():
     初始化定时任务
     """
     from libs.scheduler import scheduler
-    
+
     scheduler.add_job(
         notify_unbound_agents_tasks,
         "cron",
