@@ -1024,9 +1024,9 @@ def init_billing_tasks():
                 job_func,
                 CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
                 replace_existing=True,
-                id=f"billing_{cloud_setting_id}",
+                id=f"billing_tasks_{cloud_setting_id}",
                 kwargs={"threshold": threshold},
-                name=f"billing_{cloud_setting_id}",
+                name=f"billing_tasks_{cloud_setting_id}",
             )
 
             logging.info(f"成功添加账单任务: billing_task_{cloud_setting_id}, 调度: {scheduled_expr}")
