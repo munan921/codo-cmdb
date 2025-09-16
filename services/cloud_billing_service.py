@@ -45,6 +45,20 @@ def validate_webhook_url(url: str = '') -> bool:
 
     return True
 
+def _handle_webhook_secret(webhook_secret, existing_obj):
+  """处理webhook密钥加密逻辑"""
+  if not webhook_secret:
+      return ""
+
+  # 如果没有现有对象，或现有对象没有密钥，或密钥不同，则加密新密钥
+  if (not existing_obj or
+      not existing_obj.webhook_secret or
+      webhook_secret != existing_obj.webhook_secret):
+      return mc.my_encrypt(webhook_secret)
+
+  # 密钥相同，保持原值
+  return existing_obj.webhook_secret
+
 
 def create_or_update(**data):
     cloud_setting_id = data.get('cloud_setting_id', 0)
@@ -98,17 +112,9 @@ def create_or_update(**data):
                 return {"code": -1, "msg": "云厂商配置不存在"}
             existing_obj = session.query(CloudBillingSettingModels).filter(
                 CloudBillingSettingModels.cloud_setting_id == cloud_setting_id).first()
-            if webhook_secret:
-                if not existing_obj:
-                    kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
-                else:
-                    if not existing_obj.webhook_secret:
-                        kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
-                    else:
-                        if webhook_secret != existing_obj.webhook_secret:
-                            kw["webhook_secret"] = mc.my_encrypt(webhook_secret)
-            else:
-                kw["webhook_secret"] = ""
+
+            # 处理webhook密钥，这里的密钥回显是密文，不会导致安全风险
+            kw["webhook_secret"] = _handle_webhook_secret(webhook_secret, existing_obj)
 
             if not existing_obj:
                 session.add(CloudBillingSettingModels(**kw))
