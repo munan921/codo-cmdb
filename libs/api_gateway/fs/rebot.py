@@ -26,13 +26,9 @@ class FeishuBot:
         :param notice_user: 通知用户
         :param secret: 飞书通知签名密钥
         """
-        self.webhook_url = (
-            webhook_url or "https://open.feishu.cn/open-apis/bot/v2/hook/71db8ab2-46bc-4383-bde2-d2d977c9bc26"
-        )
+        self.webhook_url = webhook_url
         self.notice_user = notice_user or "all"
         self.secret = secret
-        if not self.secret:
-            raise ValueError("飞书通知签名密钥不能为空")
         # 预定义模板
         self.templates = {
             "instance_table": Template("""
@@ -78,13 +74,15 @@ $rows
         """
         if should_at_user:
             message = f'<at user_id="{self.notice_user}"></at> {message}'
-        timestamp, sign = self.gen_signature()
         data = {
             "msg_type": "text",
             "content": {"text": message},
-            "timestamp": timestamp,
-            "sign": sign,
         }
+        if self.secret:
+            timestamp, sign = self.gen_signature()
+            data["sign"] = sign
+            data["timestamp"] = timestamp
+
         return self.send_message(data)
 
     def send_card_message(self, title: str, content: str, should_at_user: Optional[bool] = False):
@@ -94,11 +92,8 @@ $rows
         :param content: 卡片内容
         :param should_at_user: 是否@用户
         """
-        timestamp, sign = self.gen_signature()
         data = {
             "msg_type": "interactive",
-            "timestamp": timestamp,
-            "sign": sign,
             "card": {
                 "schema": "2.0",
                 "config": {
@@ -130,6 +125,11 @@ $rows
                 },
             },
         }
+        if self.secret:
+            timestamp, sign = self.gen_signature()
+            data["timestamp"] = timestamp
+            data["sign"] = sign
+
         if should_at_user:
             data["card"]["body"]["elements"].insert(
                 0, {"tag": "div", "text": {"content": f"<at id={self.notice_user}></at>", "tag": "lark_md"}}

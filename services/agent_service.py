@@ -325,6 +325,8 @@ def batch_add_server_by_agent_for_api(data: dict) -> CommonResponse:
                                              inner_ip=agent_obj.ip,
                                              name=agent_obj.hostname,
                                              agent_bind_status=AgentBindStatus.MANUAL_BIND,
+                                             region="cn-shanghai",
+                                             vpc_id="vpc-register",
                                              state="运行中",
                                              ext_info={},
                                              is_expired=False)

@@ -52,3 +52,6 @@ class CloudBillingSettingModels(Base):
     threshold =  Column('threshold', String(120), nullable=False, comment='余额阈值')
     scheduled_expr = Column(String(64), nullable=False, default='0 10 * * *', comment='巡检调度表达式，默认为每天10点')
     cloud_setting_id = Column('cloud_setting_id', String(120), nullable=False, index=True, comment='云账户配置id')
+    webhook_type = Column('webhook_type', String(120), nullable=False, comment='webhook类型')
+    webhook_url = Column('webhook_url', Text(), comment='webhook地址', nullable=False)
+    webhook_secret = Column('webhook_secret', Text(), comment='webhook签名密钥', nullable=True)
