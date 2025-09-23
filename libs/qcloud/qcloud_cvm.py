@@ -12,7 +12,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from tencentcloud.common import credential
-from tencentcloud.cvm.v20170312 import cvm_client, models
+from tencentcloud.cvm.v20170312 import cvm_client
+from tencentcloud.cvm.v20170312.models import DescribeInstancesRequest,ModifyInstancesAttributeRequest
 
 from models.models_utils import mark_expired, mark_expired_by_sync, server_task, server_task_batch
 
@@ -64,7 +65,7 @@ class QCloudCVM:
         cvm_list = []
         limit = self._limit
         offset = self._offset
-        req = models.DescribeInstancesRequest()
+        req = DescribeInstancesRequest()
         try:
             while True:
                 params = {"Offset": offset, "Limit": limit}
@@ -150,7 +151,7 @@ class QCloudCVM:
         """实例改名"""
         result = dict()
         params = {"InstanceIds": [instance_id], "InstanceName": instance_name}
-        req = models.ModifyInstancesAttributeRequest()
+        req = ModifyInstancesAttributeRequest()
         req.from_json_string(json.dumps(params))
         try:
             resp = self.client.ModifyInstancesAttribute(req)
@@ -163,7 +164,7 @@ class QCloudCVM:
     def get_single_cvm(self, instance_id):
         try:
             params = {"InstanceIds": [instance_id]}
-            req = models.DescribeInstancesRequest()
+            req = DescribeInstancesRequest()
             req.from_json_string(json.dumps(params))
             resp = self.client.DescribeInstances(req)
             return self.format_data(resp.InstanceSet[0])

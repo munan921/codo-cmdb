@@ -79,8 +79,9 @@ class VolCRedis:
         configuration.region = region
         # configuration.client_side_validation = False
         # set default configuration
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return REDISApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+        return REDISApi(api_client)
 
     def get_describe_db_instance(self):
         """

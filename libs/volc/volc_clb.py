@@ -5,6 +5,7 @@
 from __future__ import print_function
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import volcenginesdkcore
@@ -60,8 +61,9 @@ class VolCCLB:
         configuration.region = region
         configuration.client_side_validation = False
         # set default configuration
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return CLBApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+        return CLBApi(api_client)
 
     def get_describe_load_balancers(self):
         """
@@ -85,8 +87,7 @@ class VolCCLB:
         :return:
         """
         try:
-            instances_request = DescribeLoadBalancerAttributesRequest()
-            instances_request.load_balancer_id = load_balancer_id
+            instances_request = DescribeLoadBalancerAttributesRequest(load_balancer_id=load_balancer_id)
             resp = self.api_instance.describe_load_balancer_attributes(instances_request)
             return resp
         except ApiException as e:
@@ -96,7 +97,7 @@ class VolCCLB:
             return None
 
     def describe_load_balancer_billing(
-        self, load_balancer_ids: List[str], page_number: int = 1, page_size: int = 10
+        self, load_balancer_ids: List[str], page_number: int = 1, page_size: int = 20
     ) -> dict:
         """
         接口查询CLB实例的计费信息
@@ -116,6 +117,44 @@ class VolCCLB:
             )
             return None
 
+    def get_all_load_balancer_billing_map(self, load_balancer_ids: List[str]) -> Dict[str, Any]:
+        """
+        批量查询所有CLB实例的计费信息并汇总成map对象
+        :param load_balancer_ids: 负载均衡实例ID列表
+        :return: 以实例ID为key的计费信息map
+        """
+        billing_map = {}
+        if not load_balancer_ids:
+            return billing_map
+
+        try:
+            # 按批次查询，每次最多20个实例
+            batch_size = 20
+            for i in range(0, len(load_balancer_ids), batch_size):
+                batch_ids = load_balancer_ids[i:i + batch_size]
+
+                billing_data = self.describe_load_balancer_billing(
+                    load_balancer_ids=batch_ids,
+                    page_number=1,
+                )
+
+                if billing_data is None or not hasattr(billing_data, 'load_balancer_billing_configs'):
+                    continue
+
+                billing_configs = billing_data.load_balancer_billing_configs
+                if not billing_configs:
+                    continue
+
+                # 将计费信息存入map
+                for billing_config in billing_configs:
+                    if hasattr(billing_config, 'load_balancer_id'):
+                        billing_map[billing_config.load_balancer_id] = billing_config
+
+        except Exception as e:
+            logging.error(f"批量查询CLB计费信息异常 get_all_load_balancer_billing_map: {self._account_id} -- {e}")
+
+        return billing_map
+
     def get_single_billing(self, load_balancer_id: str) -> dict:
         """
         接口查询CLB实例的计费信息
@@ -129,12 +168,14 @@ class VolCCLB:
                 return billing_info
             except Exception as e:
                 logging.error(f"火山云负载均衡CLB实例计费信息调用异常 get_single_billing: {self._account_id} -- {e}")
-                return None
-        return None
+                return {}
+        return {}
 
     def get_all_clbs(self):
         clbs = list()
+        all_instances = []
         try:
+            # 首先获取所有实例
             while True:
                 data = self.get_describe_load_balancers()
                 if data is None:
@@ -143,19 +184,28 @@ class VolCCLB:
                 instances = data.load_balancers
                 if not instances:
                     break
-                clbs.extend([self.handle_data(data) for data in instances])
+                all_instances.extend(instances)
                 total_count = data.total_count
                 if total_count < self.page_size:
                     break
                 self.page_number += 1
+
+            # 批量查询计费信息
+            load_balancer_ids = [instance.load_balancer_id for instance in all_instances]
+            billing_map = self.get_all_load_balancer_billing_map(load_balancer_ids)
+
+            # 处理数据
+            clbs.extend([self.handle_data(instance, billing_map) for instance in all_instances])
+
         except Exception as e:
             logging.error(f"火山云负载均衡调用异常 get_all_clbs: {self._account_id} -- {e}")
         return clbs
 
-    def handle_data(self, data) -> Dict[str, Any]:
+    def handle_data(self, data, billing_map: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         数据加工处理
-        :param data:
+        :param data: 负载均衡实例数据
+        :param billing_map: 计费信息map
         :return:
         """
         res: Dict[str, Any] = dict()
@@ -186,7 +236,14 @@ class VolCCLB:
             res["ext_info"]["charge_type"] = LoadBalancerBillingTypeMapping.get(
                 detail.load_balancer_billing_type, ""
             )
-        billing_info = self.get_single_billing(data.load_balancer_id)
+
+        # 使用批量查询的计费信息map，如果没有则使用单个查询
+        billing_info = None
+        if billing_map and data.load_balancer_id in billing_map:
+            billing_info = billing_map[data.load_balancer_id]
+        else:
+            billing_info = self.get_single_billing(data.load_balancer_id)
+
         if billing_info is not None:
             res["ext_info"]["renew_type"] = AutoRenewMapping.get(billing_info.renew_type, "")
         return res

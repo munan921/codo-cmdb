@@ -31,8 +31,11 @@ class VolCBilling:
         configuration.ak = access_id
         configuration.sk = access_key
         configuration.region = region
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return BILLINGApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+
+        return BILLINGApi(api_client)
+
 
     def query_balance_acct(self, request=None):
         try:

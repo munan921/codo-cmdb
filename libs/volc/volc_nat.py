@@ -71,8 +71,9 @@ class VolNAT:
         configuration.ak = access_id
         configuration.sk = access_key
         configuration.region = region
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return volcenginesdknatgateway.NATGATEWAYApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+        return volcenginesdknatgateway.NATGATEWAYApi(api_client)
 
     def describe_nat_gateways(self) -> Optional[DescribeNatGatewaysResponse]:
         """查询NAT网关实例列表

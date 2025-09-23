@@ -9,7 +9,9 @@ from __future__ import print_function
 import logging
 
 from tencentcloud.common import credential
-from tencentcloud.tke.v20180525 import models, tke_client
+from tencentcloud.tke.v20180525 import tke_client
+from tencentcloud.tke.v20180525.models import (DescribeEKSClustersRequest, DescribeClustersRequest,
+                                               DescribeClusterStatusRequest)
 
 from models.models_utils import cluster_task, mark_expired, mark_expired_by_sync
 
@@ -30,7 +32,7 @@ class QcloudTKE:
         self.region = region
         self.__cred = credential.Credential(self._access_id, access_key)
         self.client = tke_client.TkeClient(self.__cred, self.region)
-        self.req = models.DescribeEKSClustersRequest()
+        self.req = DescribeEKSClustersRequest()
 
     def describe_tke_instance(self, offset: int):
         """获取tke实例
@@ -40,7 +42,7 @@ class QcloudTKE:
             models.DescribeDBInstancesResponse: tke实例响应
         """
         try:
-            req = models.DescribeEKSClustersRequest()
+            req = DescribeEKSClustersRequest()
             req.Limit = self._limit
             req.Offset = offset
             response = self.client.DescribeEKSClusters(req)
@@ -57,7 +59,7 @@ class QcloudTKE:
             models.DescribeDBInstancesResponse: tke实例响应
         """
         try:
-            req = models.DescribeClustersRequest()
+            req = DescribeClustersRequest()
             req.Limit = self._limit
             req.Offset = offset
             response = self.client.DescribeClusters(req)
@@ -91,7 +93,7 @@ class QcloudTKE:
             models.DescribeEKSClusterNodeResponse: tke节点响应
         """
         try:
-            req = models.DescribeClusterStatusRequest()
+            req = DescribeClusterStatusRequest()
             req.ClusterId = cluster_id
             response = self.client.DescribeClusterStatus(req)
             return response
@@ -107,7 +109,7 @@ class QcloudTKE:
             models.DescribeClusterEndpointVipResponse: tke网络设置响应
         """
         try:
-            req = models.DescribeClustersRequest()
+            req = DescribeClustersRequest()
             req.ClusterId = cluster_id
             response = self.client.DescribeClusters(req)
             return response

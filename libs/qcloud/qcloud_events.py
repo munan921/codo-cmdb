@@ -11,7 +11,8 @@ import json
 import datetime
 from typing import *
 from tencentcloud.common import credential
-from tencentcloud.cvm.v20170312 import cvm_client, models
+from tencentcloud.cvm.v20170312 import cvm_client
+from tencentcloud.cvm.v20170312.models import DescribeTaskInfoRequest
 from websdk2.db_context import DBContext
 from models.asset import AssetServerModels
 from models.models_utils import cloud_event_task
@@ -45,7 +46,7 @@ class QCloudEventClient:
         调用DescribeTaskInfoRequest查询实例的系统事件信息
         :return:
         """
-        req = models.DescribeTaskInfoRequest()
+        req = DescribeTaskInfoRequest()
         start_date = datetime.date.today() - datetime.timedelta(days=15)
         end_date = datetime.date.today() + datetime.timedelta(days=2)
         params = {
