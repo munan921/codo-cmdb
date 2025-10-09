@@ -49,6 +49,7 @@ class VolCBillingInspector(BaseInspector):
             return InspectorResult(success=False, message="查询火山云余额失败")
 
         # 处理余额数据类型
+        # NOTE 可用余额的计算公式为：可用余额 = (现金余额 - 冻结金额) + 信控额度 - 欠费金额
         try:
             balance = float(response.available_balance)
         except (ValueError, TypeError) as e:
@@ -60,10 +61,10 @@ class VolCBillingInspector(BaseInspector):
             return InspectorResult(
                 success=True,
                 status=InspectorStatus.EXCEPTION,
-                message=f"火山云账户可用余额巡检异常，当前余额为{balance}元, 小于阈值{self.threshold}元",
+                message=f"火山云账户可用余额(包含信控)巡检异常，当前余额为{balance}元, 小于阈值{self.threshold}元",
             )
         return InspectorResult(
             success=True,
             status=InspectorStatus.NORMAL,
-            message=f"火山云账户可用余额巡检正常，当前余额为{balance}元, 大于阈值{self.threshold}元",
+            message=f"火山云账户可用余额(包含信控)巡检正常，当前余额为{balance}元, 大于阈值{self.threshold}元",
         )

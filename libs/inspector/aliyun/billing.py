@@ -49,6 +49,7 @@ class AliyunBillingInspector(BaseInspector):
             )
 
         # 可用余额
+        # NOTE 可用余额计算方式: （现金余额 + 信用额度）- （当月未结清 + 历史未结清）
         available_amount = float(response.get("Data", {}).get("AvailableAmount", "").replace(",", ""))
         if not available_amount:
             return InspectorResult(
@@ -61,11 +62,11 @@ class AliyunBillingInspector(BaseInspector):
         if available_amount < self.threshold:
             return InspectorResult(
                 success=True,
-                message=f"阿里云账户可用余额巡检异常，当前余额为{available_amount}元, 小于阈值{self.threshold}元",
+                message=f"阿里云账户可用余额(包含信控)巡检异常，当前余额为{available_amount}元, 小于阈值{self.threshold}元",
                 status=InspectorStatus.EXCEPTION,
             )
         return InspectorResult(
             success=True,
-            message=f"阿里云账户可用余额巡检正常，当前余额为{available_amount}元, 大于阈值{self.threshold}元",
+            message=f"阿里云账户可用余额巡检(包含信控)正常，当前余额为{available_amount}元, 大于阈值{self.threshold}元",
             status=InspectorStatus.NORMAL,
         )
