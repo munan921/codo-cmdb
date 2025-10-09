@@ -44,8 +44,9 @@ class VolCVPC:
         configuration.region = region
         # configuration.client_side_validation = False
         # set default configuration
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return VPCApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+        return VPCApi(api_client)
 
     def get_describe_vpc(self):
         """

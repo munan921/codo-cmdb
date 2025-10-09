@@ -12,7 +12,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from tencentcloud.common import credential
-from tencentcloud.redis.v20180412 import models, redis_client
+from tencentcloud.redis.v20180412 import  redis_client
+from tencentcloud.redis.v20180412.models import DescribeInstancesRequest
 
 from models.models_utils import mark_expired, mark_expired_by_sync, redis_task
 
@@ -85,7 +86,7 @@ class QCloudRedis:
         redis_list = []
         limit = self._limit
         offset = self._offset
-        req = models.DescribeInstancesRequest()
+        req = DescribeInstancesRequest()
         try:
             while True:
                 params = {"Offset": offset, "Limit": limit}

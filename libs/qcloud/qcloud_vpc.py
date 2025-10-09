@@ -13,7 +13,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import models, vpc_client
+from tencentcloud.vpc.v20170312 import vpc_client
+from tencentcloud.vpc.v20170312.models import DescribeVpcsRequest, DescribeNetworkInterfacesRequest
 
 from models.models_utils import mark_expired, mark_expired_by_sync, vpc_task
 
@@ -26,7 +27,7 @@ class QCloudCVPC:
         self._account_id = account_id
         self.__cred = credential.Credential(access_id, access_key)
         self.client = vpc_client.VpcClient(self.__cred, self._region)
-        self.req = models.DescribeVpcsRequest()
+        self.req = DescribeVpcsRequest()
 
     def get_all_vpc(self):
         vpc_list = []
@@ -95,7 +96,7 @@ class QCloudNetwork:
         self._account_id = account_id
         self.__cred = credential.Credential(access_id, access_key)
         self.client = vpc_client.VpcClient(self.__cred, self._region)
-        self.req = models.DescribeNetworkInterfacesRequest()
+        self.req = DescribeNetworkInterfacesRequest()
 
     def get_all_network_interface(self):
         network_list = []

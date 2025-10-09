@@ -10,6 +10,8 @@ from typing import List, Union
 
 from tencentcloud.common import credential
 from tencentcloud.mongodb.v20190725 import models, mongodb_client
+from tencentcloud.mongodb.v20190725.models import (DescribeDBInstancesRequest, DescribeDBInstancesResponse,
+                                                   DescribeDBInstanceURLRequest)
 
 from models.models_utils import mark_expired, mark_expired_by_sync, mongodb_task
 
@@ -36,9 +38,9 @@ class QcloudMongoDB:
         self.region = region
         self.__cred = credential.Credential(self._access_id, access_key)
         self.client = mongodb_client.MongodbClient(self.__cred, self.region)
-        self.req = models.DescribeDBInstancesRequest()
+        self.req = DescribeDBInstancesRequest()
 
-    def describe_mongodb_instance(self, offset: int) -> Union[models.DescribeDBInstancesResponse, None]:
+    def describe_mongodb_instance(self, offset: int) -> Union[DescribeDBInstancesResponse, None]:
         """获取mongodb实例
         Args:
             offset: 偏移量
@@ -46,7 +48,7 @@ class QcloudMongoDB:
             models.DescribeDBInstancesResponse: mongodb实例响应
         """
         try:
-            req = models.DescribeDBInstancesRequest()
+            req = DescribeDBInstancesRequest()
             req.Limit = self._limit
             req.Offset = offset
             response = self.client.DescribeDBInstances(req)
@@ -55,9 +57,9 @@ class QcloudMongoDB:
             logging.error(f"获取mongodb实例失败: {e}")
             return
 
-    def describe_mongo_endpoint(self, instance_id: str) -> Union[models.DescribeDBInstanceURLRequest, None]:
+    def describe_mongo_endpoint(self, instance_id: str) -> Union[DescribeDBInstanceURLRequest, None]:
         """获取mongodb实例的连接地址"""
-        req = models.DescribeDBInstanceURLRequest()
+        req = DescribeDBInstanceURLRequest()
         req.InstanceId = instance_id
         try:
             response = self.client.DescribeDBInstanceURL(req)

@@ -11,7 +11,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from tencentcloud.cdb.v20170320 import cdb_client, models
+from tencentcloud.cdb.v20170320 import cdb_client
+from tencentcloud.cdb.v20170320.models import DescribeDBInstancesRequest
 from tencentcloud.common import credential
 
 from models.models_utils import mark_expired, mark_expired_by_sync, mysql_task
@@ -54,7 +55,7 @@ class QCloudCDB:
         cdb_list = []
         limit = self._limit
         offset = self._offset
-        req = models.DescribeDBInstancesRequest()
+        req = DescribeDBInstancesRequest()
         try:
             while True:
                 params = {"Offset": offset, "Limit": limit}

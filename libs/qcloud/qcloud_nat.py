@@ -11,7 +11,8 @@ import logging
 from typing import *
 
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import vpc_client, models as vpc_models
+from tencentcloud.vpc.v20170312 import vpc_client
+from tencentcloud.vpc.v20170312.models import DescribeNatGatewaysRequest
 
 from models.models_utils import nat_task, mark_expired, mark_expired_by_sync
 
@@ -48,7 +49,7 @@ class QCloudNAT:
     def describe_nat_gateways(self, offset: int = 0) -> List:
         """腾讯云NAT网关实例列表
         """
-        req = vpc_models.DescribeNatGatewaysRequest()
+        req = DescribeNatGatewaysRequest()
         req.Offset = offset
         req.Limit = self._limit
         resp = self.client.DescribeNatGateways(req)

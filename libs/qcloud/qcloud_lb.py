@@ -11,7 +11,9 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from tencentcloud.clb.v20180317 import clb_client, models
+from tencentcloud.clb.v20180317 import clb_client
+from tencentcloud.clb.v20180317.models import DescribeLoadBalancersRequest
+
 from tencentcloud.common import credential
 
 from models.models_utils import lb_task, mark_expired, mark_expired_by_sync
@@ -47,7 +49,7 @@ class QCloudLB:
         self.region = region
         self.__cred = credential.Credential(self._access_id, access_key)
         self.client = clb_client.ClbClient(self.__cred, self.region)
-        self.req = models.DescribeLoadBalancersRequest()
+        self.req = DescribeLoadBalancersRequest()
 
     def format_lb_data(self, row, lb_type: Optional[str] = "clb") -> Dict[str, Any]:
         # 定义返回

@@ -12,7 +12,8 @@ import json
 import logging
 from typing import *
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import vpc_client, models
+from tencentcloud.vpc.v20170312 import vpc_client
+from tencentcloud.vpc.v20170312.models import DescribeSubnetsRequest
 from models.models_utils import vswitch_task, mark_expired, mark_expired_by_sync
 
 
@@ -24,7 +25,7 @@ class QcloudVSwitch:
         self._account_id = account_id
         self.__cred = credential.Credential(access_id, access_key)
         self.client = vpc_client.VpcClient(self.__cred, self._region)
-        self.req = models.DescribeSubnetsRequest()
+        self.req = DescribeSubnetsRequest()
 
     def get_all_subnet(self) -> list:
         subnet_list = []

@@ -13,6 +13,7 @@ from typing import *
 import json
 from tencentcloud.common import credential
 from tencentcloud.cvm.v20170312 import cvm_client, models
+from tencentcloud.cvm.v20170312.models import DescribeImagesRequest
 from models.models_utils import image_task, mark_expired, mark_expired_by_sync
 
 
@@ -46,7 +47,7 @@ class QCloudCImg:
         self._account_id = account_id
         self.__cred = credential.Credential(access_id, access_key)
         self.client = cvm_client.CvmClient(self.__cred, self._region)
-        self.req = models.DescribeImagesRequest()
+        self.req = DescribeImagesRequest()
 
     def get_all_img(self):
         __list = []

@@ -43,18 +43,24 @@ class QCloudBillingInspector(BaseInspector):
         credit_amount = response.CreditAmount
         # 当前真实可用余额
         real_balance = response.RealBalance
+        # 赠送余额
+        present_account_balance = response.PresentAccountBalance
+        # 冻结金额
+        freeze_account = response.FreezeAmount
+        # 欠费金额
+        owe_amount = response.OweAmount
 
         # 余额单位为分，转为元
-        total_balance = (credit_amount + real_balance) / 100
+        total_balance = (credit_amount + real_balance + present_account_balance - owe_amount - freeze_account) / 100
         # 计算信用额度 + 当前真实可用余额 < 阈值
         if float(total_balance) < self.threshold:
             return InspectorResult(
                 success=True,
-                message=f"腾讯云账户可用余额巡检异常，当前余额为{total_balance}元, 小于阈值{self.threshold}元",
+                message=f"腾讯云账户可用余额(包含信控)巡检异常，当前余额为{total_balance}元, 小于阈值{self.threshold}元",
                 status=InspectorStatus.EXCEPTION,
             )
         return InspectorResult(
             success=True,
-            message=f"腾讯云账户可用余额巡检正常，当前余额为{total_balance}元, 大于阈值{self.threshold}元",
+            message=f"腾讯云账户可用余额(包含信控)巡检正常，当前余额为{total_balance}元, 大于阈值{self.threshold}元",
             status=InspectorStatus.NORMAL,
         )

@@ -17,6 +17,7 @@ from volcenginesdkecs import DescribeInstancesRequest, ECSApi
 from volcenginesdkvpc import DescribeNetworkInterfaceAttributesRequest
 
 from libs.volc.volc_vpc import VolCVPC
+from libs.volc.volc_network_interface import VolCNetworkInterface
 from models.models_utils import mark_expired, mark_expired_by_sync, server_task, server_task_batch
 
 
@@ -57,8 +58,9 @@ class VolCECS:
         configuration.ak = access_id
         configuration.sk = access_key
         configuration.region = region
-        volcenginesdkcore.Configuration.set_default(configuration)
-        return ECSApi()
+        # volcenginesdkcore.Configuration.set_default(configuration)
+        api_client = volcenginesdkcore.ApiClient(configuration)
+        return ECSApi(api_client)
 
     def get_describe_info(self, next_token):
         try:
@@ -71,23 +73,37 @@ class VolCECS:
             logging.error(f"火山云云服务器调用异常.describe_instances: {self._account_id} -- {e}")
             return None
 
-    def get_describe_network_interface_detail(self, network_interface_id: str):
-        """
-        查询网卡详细信息
-        Doc: https://api.volcengine.com/api-docs/view?serviceCode=vpc&version=2020-04-01&action=DescribeNetworkInterfaceAttributes
-        :return:
-        """
+    def get_all_network_interfaces(self) -> Dict[str, Any]:
+        result = {}
         try:
-            instance_request = DescribeNetworkInterfaceAttributesRequest(network_interface_id=network_interface_id)
-            resp = VolCVPC(
-                access_id=self._access_id, access_key=self._access_key, region=self._region, account_id=self._account_id
-            ).api_instance.describe_network_interface_attributes(instance_request)
-            return resp
+            api_instance = VolCNetworkInterface(access_id=self._access_id, access_key=self._access_key, region=self._region, account_id=self._account_id)
+            network_interfaces = api_instance.get_all_network_interfaces()
+            for network_interface in network_interfaces:
+                result[network_interface.network_interface_id] = network_interface.security_group_ids
         except ApiException as e:
-            logging.error(f"火山云网卡详情调用异常.get_describe_network_interface_detail: {self._account_id} -- {e}")
-            return None
+            logging.error(f"火山云查询网卡列表失败: {self._account_id} -- {e}")
+            return result
+        return result
+
+
+    # def get_describe_network_interface_detail(self, network_interface_id: str):
+    #     """
+    #     查询网卡详细信息
+    #     Doc: https://api.volcengine.com/api-docs/view?serviceCode=vpc&version=2020-04-01&action=DescribeNetworkInterfaceAttributes
+    #     :return:
+    #     """
+    #     try:
+    #         instance_request = DescribeNetworkInterfaceAttributesRequest(network_interface_id=network_interface_id)
+    #         resp = VolCVPC(
+    #             access_id=self._access_id, access_key=self._access_key, region=self._region, account_id=self._account_id
+    #         ).api_instance.describe_network_interface_attributes(instance_request)
+    #         return resp
+    #     except ApiException as e:
+    #         logging.error(f"火山云网卡详情调用异常.get_describe_network_interface_detail: {self._account_id} -- {e}")
+    #         return None
 
     def get_all_ecs(self):
+        network_interface_map = self.get_all_network_interfaces()
         ecs_list = []
         next_token = ""
         while True:
@@ -95,7 +111,8 @@ class VolCECS:
             if data is None:
                 break
 
-            ecs_list.extend(map(self.format_data, data.instances))
+            for instance in data.instances:
+                ecs_list.append(self.format_data(instance, network_interface_map))
             next_token = data.next_token
             # logging.info(f"Fetched {len(data.instances)} instances, Next token: {next_token}")
 
@@ -105,7 +122,7 @@ class VolCECS:
 
         return ecs_list
 
-    def format_data(self, data) -> Dict[str, str]:
+    def format_data(self, data, network_interface_map: Dict[str, Any]) -> Dict[str, str]:
         """
         处理数据
         :param data:
@@ -147,12 +164,9 @@ class VolCECS:
             network_interfaces = data.network_interfaces
             for network_interface in network_interfaces:
                 network_interface_id = network_interface.network_interface_id
-                detail = self.get_describe_network_interface_detail(network_interface_id)
-                if detail is not None:
-                    security_group_ids = detail.security_group_ids
-                    items.extend(security_group_ids)
-
-            res["security_group_ids"] = items
+                security_group_ids = network_interface_map.get(network_interface_id, [])
+                items.extend(security_group_ids)
+            res["security_group_ids"] = list(set(items))
 
         except Exception as err:
             logging.error(f"火山云ECS   data format err {self._account_id} {err}")

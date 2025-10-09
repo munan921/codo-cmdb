@@ -12,7 +12,9 @@ import json
 import logging
 from typing import *
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import vpc_client, models
+from tencentcloud.vpc.v20170312 import vpc_client
+from tencentcloud.vpc.v20170312.models import (DescribeSecurityGroupsRequest, DescribeSecurityGroupPoliciesRequest,
+                                               DescribeSecurityGroupReferencesRequest)
 from models.models_utils import security_group_task, mark_expired, mark_expired_by_sync
 
 
@@ -29,7 +31,7 @@ class QCloudSecurityGroup:
         security_group_list = []
         limit = self._limit
         offset = self._offset
-        req = models.DescribeSecurityGroupsRequest()
+        req = DescribeSecurityGroupsRequest()
         try:
             while True:
                 params = {
@@ -112,7 +114,7 @@ class QCloudSecurityGroup:
 
     def get_security_group_policies(self, security_group_id):
         try:
-            req = models.DescribeSecurityGroupPoliciesRequest()
+            req = DescribeSecurityGroupPoliciesRequest()
             params = {
                 "SecurityGroupId": security_group_id
             }
@@ -125,7 +127,7 @@ class QCloudSecurityGroup:
 
     def get_security_group_refs(self, security_group_id):
         try:
-            req = models.DescribeSecurityGroupReferencesRequest()
+            req = DescribeSecurityGroupReferencesRequest()
             params = {
                 "SecurityGroupIds": [security_group_id]
             }

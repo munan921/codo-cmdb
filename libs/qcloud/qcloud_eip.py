@@ -12,7 +12,8 @@ from typing import *
 import json
 import logging
 from tencentcloud.common import credential
-from tencentcloud.vpc.v20170312 import vpc_client, models
+from tencentcloud.vpc.v20170312 import vpc_client
+from tencentcloud.vpc.v20170312.models import DescribeAddressesRequest
 from models.models_utils import eip_task, mark_expired, mark_expired_by_sync
 
 
@@ -42,7 +43,7 @@ class QCloudEIP:
         self._account_id = account_id
         self.__cred = credential.Credential(access_id, access_key)
         self.client = vpc_client.VpcClient(self.__cred, self._region)
-        self.req = models.DescribeAddressesRequest()
+        self.req = DescribeAddressesRequest()
 
     def get_all_eip1(self):
         try:
