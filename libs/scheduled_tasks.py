@@ -970,18 +970,20 @@ def reload_single_billing_task(cloud_setting_id: int):
 
 
         # 4. 获取任务函数
-        job_func = get_billing_job_func(cloud_setting_id)
-        if not job_func:
-            logging.warning(f"无法获取任务函数，跳过任务重载: {cloud_setting_id}")
-            return False
+        # job_func = get_billing_job_func(cloud_setting_id)
+        # if not job_func:
+        #     logging.warning(f"无法获取任务函数，跳过任务重载: {cloud_setting_id}")
+        #     return False
 
         # 5. 重新添加任务
         scheduler.add_job(
-            job_func,
+            billing_task_v2,
             CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
             replace_existing=True,
             id=job_id,
             name=job_id,
+            args=[cloud_setting_id],
+            jobstore="redis",
         )
 
         logging.info(f"成功重载账单巡检任务: {job_id}, 调度: {scheduled_expr}, 阈值: {threshold}")
@@ -1015,18 +1017,20 @@ def init_billing_tasks():
             logging.error(f"跳过cloud_setting_id={cloud_setting_id}，无效的cron表达式'{scheduled_expr}': {e}")
             continue
 
-        job_func = get_billing_job_func(cloud_setting_id)
-        if not job_func:
-            continue
+        # job_func = get_billing_job_func(cloud_setting_id)
+        # if not job_func:
+        #     continue
 
         try:
             scheduler.add_job(
-                job_func,
+                billing_task_v2,
                 CronTrigger.from_crontab(scheduled_expr, timezone="Asia/Shanghai"),
                 replace_existing=True,
                 id=f"billing_tasks_{cloud_setting_id}",
-                kwargs={"threshold": threshold},
+                # kwargs={"threshold": threshold},
+                args=[cloud_setting_id],
                 name=f"billing_tasks_{cloud_setting_id}",
+                jobstore="redis",
             )
 
             logging.info(f"成功添加账单任务: billing_task_{cloud_setting_id}, 调度: {scheduled_expr}")
