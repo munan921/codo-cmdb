@@ -33,8 +33,8 @@ from libs.thread_pool import global_executors
 
 job_stores: dict[str, BaseJobStore]  = {'default': MemoryJobStore()}
 
-redis_info = settings.get(const.REDIS_CONFIG_ITEM, None).get(const.DEFAULT_RD_KEY, None)
-if redis_info and redis_info.get(const.RD_HOST_KEY):
+redis_info = settings.get(const.REDIS_CONFIG_ITEM, {}).get(const.DEFAULT_RD_KEY, {})
+if redis_info and redis_info.get(const.RD_HOST_KEY, None):
     job_stores['redis'] = RedisJobStore(
         host=redis_info.get(const.RD_HOST_KEY),
         port=redis_info.get(const.RD_PORT_KEY, 6379),
