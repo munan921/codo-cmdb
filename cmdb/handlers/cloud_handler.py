@@ -18,6 +18,11 @@ from tornado.ioloop import IOLoop
 from concurrent.futures import ThreadPoolExecutor
 from tornado.concurrent import run_on_executor
 from apscheduler.schedulers.tornado import TornadoScheduler
+from apscheduler.jobstores.base import BaseJobStore
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.jobstores.redis import RedisJobStore
+from websdk2.consts import const
+from settings import settings
 
 from libs.base_handler import BaseHandler
 from models.models_utils import get_all_cloud_interval
@@ -26,8 +31,18 @@ from libs.mycrypt import mc
 from libs.thread_pool import global_executors
 
 
+job_stores: dict[str, BaseJobStore]  = {'default': MemoryJobStore()}
 
-scheduler = TornadoScheduler(timezone="Asia/Shanghai")
+redis_info = settings.get(const.REDIS_CONFIG_ITEM, {}).get(const.DEFAULT_RD_KEY, {})
+if redis_info and redis_info.get(const.RD_HOST_KEY, None):
+    job_stores['redis'] = RedisJobStore(
+        host=redis_info.get(const.RD_HOST_KEY),
+        port=redis_info.get(const.RD_PORT_KEY, 6379),
+        db=redis_info.get(const.RD_DB_KEY, 0),
+        password=redis_info.get(const.RD_PASSWORD_KEY, None),
+    )
+
+scheduler = TornadoScheduler(timezone="Asia/Shanghai", jobstores=job_stores)
 
 
 # 云厂商模块懒加载器
