@@ -116,6 +116,18 @@ def mark_expired_by_sync(cloud_name: str, account_id: str, resource_type: str, i
                 expire_filter.append(resource_model.region == region)
             session.query(resource_model).filter(*expire_filter).update({resource_model.is_expired: True})
 
+            # 删除已过期的资源
+            delete_filter = [
+                resource_model.cloud_name == cloud_name,
+                resource_model.account_id == account_id,
+                resource_model.is_expired == True,
+            ]
+            if region:
+                delete_filter.append(resource_model.region == region)
+
+            deleted_count = session.query(resource_model).filter(*delete_filter).delete(synchronize_session=False)
+            logging.info(f"删除过期资源， 资源类型：{assert_type}, 数量: {deleted_count}")
+
             session.commit()
     except Exception as e:
         logging.error(f"标记过期状态失败: {e}")
