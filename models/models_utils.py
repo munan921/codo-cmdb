@@ -126,7 +126,7 @@ def mark_expired_by_sync(cloud_name: str, account_id: str, resource_type: str, i
                 delete_filter.append(resource_model.region == region)
 
             deleted_count = session.query(resource_model).filter(*delete_filter).delete(synchronize_session=False)
-            logging.info(f"删除过期资源， 资源类型：{assert_type}, 数量: {deleted_count}")
+            logging.info(f"删除过期资源， 资源类型：{resource_type}, 数量: {deleted_count}")
 
             session.commit()
     except Exception as e:
