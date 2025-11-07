@@ -8,6 +8,8 @@ Desc    : 解释一下吧
 """
 import json
 import logging
+from typing import Optional, Union
+
 from shortuuid import uuid
 from sqlalchemy import or_, func
 from typing import *
@@ -119,6 +121,41 @@ def mark_server(data: dict) -> dict:
 
         session.query(AssetServerModels).filter_by(**filter_map).update({AssetServerModels.is_product: is_product})
     return dict(code=0, msg='标记成功')
+
+
+def exists(instance_id: str) -> bool:
+    with DBContext('r') as session:
+        exist_obj = session.query(AssetServerModels).filter(AssetServerModels.instance_id == instance_id).first()
+        if not exist_obj:
+            return False
+        return True
+
+
+def upsert_server(data: dict) -> Optional[dict[str, Union[int, str]]]:
+    instance_id = data.get("instance_id", "")
+    if not instance_id:
+        return {"code": -1, "msg": "instance_id  为空"}
+
+    # 不存在就创建
+    if not exists(instance_id):
+        return add_server(data)
+
+    update_data = {
+        AssetServerModels.cloud_name: data.get('cloud_name',""),
+        AssetServerModels.name: data.get("name", ""),
+        AssetServerModels.ownership: data.get('ownership',""),
+        AssetServerModels.outer_ip: data.get("outer_ip", ""),
+        AssetServerModels.inner_ip: data.get("inner_ip", ""),
+        AssetServerModels.ext_info: data.get("ext_info", {}),  # 存json
+    }
+    try:
+        with DBContext('w', None, True) as session:
+            try:
+                session.query(AssetServerModels).filter(AssetServerModels.instance_id == instance_id).update(update_data)
+            except Exception as err:
+                return dict(code=-1, msg=f'更新失败 {err}')
+    except Exception as err:
+        return dict(code=-2, msg=f'更新失败 {err}')
 
 
 def add_server(server: dict):
