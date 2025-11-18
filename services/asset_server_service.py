@@ -8,8 +8,11 @@ Desc    : 解释一下吧
 """
 import json
 import logging
+from typing import Optional, Union
+
 from shortuuid import uuid
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, insert
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from typing import *
 from websdk2.db_context import DBContextV2 as DBContext
 from models.asset import AssetServerModels, AgentBindStatus
@@ -119,6 +122,94 @@ def mark_server(data: dict) -> dict:
 
         session.query(AssetServerModels).filter_by(**filter_map).update({AssetServerModels.is_product: is_product})
     return dict(code=0, msg='标记成功')
+
+
+def exists(instance_id: str) -> bool:
+    with DBContext('r') as session:
+        exist_obj = session.query(AssetServerModels).filter(AssetServerModels.instance_id == instance_id).first()
+        if not exist_obj:
+            return False
+        return True
+
+
+def upsert_server(data: dict) -> Optional[dict[str, Union[int, str]]]:
+    """
+    原子级 UPSERT 操作：使用 INSERT ... ON DUPLICATE KEY UPDATE 解决竞态条件
+
+    功能：根据 instance_id 唯一约束自动选择 INSERT 或 UPDATE，原子操作，避免竞态条件
+
+    参数说明：
+    - 如果 instance_id 在数据库中不存在，则执行 INSERT（新增记录）
+    - 如果 instance_id 已存在，则执行 UPDATE（更新现有记录）
+
+    优势：
+    1. 原子操作：不存在 exists() 返回后到 update() 执行前的时间窗口
+    2. 更少的数据库查询：原来需要 2 次（exists + update），现在只需 1 次
+    3. 线程安全：由数据库原生 UNIQUE 约束保证原子性
+    """
+    instance_id = data.get("instance_id", "")
+    if not instance_id:
+        return {"code": -1, "msg": "instance_id为空"}
+
+    # 验证必需字段（新增时需要）
+    cloud_name = data.get('cloud_name', "")
+    name = data.get("name", "")
+    ownership = data.get('ownership', "")
+    inner_ip = data.get("inner_ip", "")
+    outer_ip = data.get("outer_ip", "")
+    ext_info = data.get("ext_info", {})
+
+    # 获取新增时需要的其他字段
+    account_id = data.get('account_id', uuid()).strip()
+    agent_id = data.get('agent_id', "0")
+    state = data.get('state', '运行中')
+    region = data.get('region', None)
+    zone = data.get('zone', None)
+
+    try:
+        with DBContext('w', None, True) as session:
+            try:
+                # 构建 INSERT 语句
+                insert_stmt = mysql_insert(AssetServerModels).values(
+                    instance_id=instance_id,
+                    cloud_name=cloud_name,
+                    account_id=account_id,
+                    agent_id=agent_id,
+                    state=state,
+                    name=name,
+                    region=region,
+                    zone=zone,
+                    inner_ip=inner_ip,
+                    outer_ip=outer_ip,
+                    ownership=ownership,
+                    ext_info=ext_info,
+                    is_expired=False
+                )
+
+                # 在 ON DUPLICATE KEY UPDATE 时，只更新指定的字段
+                # 这样可以保留原有的 id, account_id, agent_id 等字段
+                update_stmt = insert_stmt.on_duplicate_key_update(
+                    cloud_name=cloud_name,
+                    name=name,
+                    ownership=ownership,
+                    outer_ip=outer_ip,
+                    inner_ip=inner_ip,
+                    ext_info=ext_info,
+                    state=state,
+                    region=region,
+                    zone=zone,
+                    agent_id=agent_id,
+                    is_expired=False,
+                )
+
+                session.execute(update_stmt)
+
+            except Exception as err:
+                return dict(code=-1, msg=f'upsert 操作失败 {err}')
+    except Exception as err:
+        return dict(code=-1, msg=f'数据库连接失败 {err}')
+
+    return dict(code=0, msg='upsert成功')
 
 
 def add_server(server: dict):

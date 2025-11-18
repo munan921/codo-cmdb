@@ -14,7 +14,7 @@ from libs.base_handler import BaseHandler
 from websdk2.db_context import DBContext
 from models.asset import AssetUserFieldModels
 from services.asset_server_service import add_server_batch, patch_server_batch, add_server, delete_server, mark_server, \
-    get_server_list, bind_main_agent
+    get_server_list, bind_main_agent, upsert_server
 
 
 class AssetServerHandler(BaseHandler, ABC):
@@ -43,6 +43,17 @@ class AssetServerHandler(BaseHandler, ABC):
     def delete(self):
         data = json.loads(self.request.body.decode("utf-8"))
         res = delete_server(data)
+        return self.write(res)
+
+class AssetServerUpsertHandler(BaseHandler, ABC):
+
+    def post(self):
+        """
+        添加Server数据，一般都是用自动获取，应对非等待获取，其他云机器
+        :return:
+        """
+        data = json.loads(self.request.body.decode("utf-8"))
+        res = upsert_server(data)
         return self.write(res)
 
 
@@ -128,4 +139,6 @@ server_urls = [
      {"handle_name": "配置平台-基础功能-用户字段配置", "method": ["ALL"]}),
     (r"/api/v2/cmdb/server/main_agent/", ServerBindMainAgentHandler,
      {"handle_name": "配置平台-云商-主机绑定主Agent", "method": ["POST"]}),
+    (r"/api/v2/cmdb/server/upsert/", AssetServerUpsertHandler,
+     {"handle_name": "配置平台-云商-主机upsert", "method": ["POST"]}),
 ]
