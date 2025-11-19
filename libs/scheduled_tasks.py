@@ -10,6 +10,7 @@ import time
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Set
 
+from sqlalchemy import and_, not_, exists
 from websdk2.api_set import api_set
 from websdk2.client import AcsClient
 from websdk2.configs import configs
@@ -1044,11 +1045,37 @@ def init_scheduled_tasks():
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
     scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
+    scheduler.add_job(delete_expired_resource_from_tree, "cron", hour=3, minute=0, id="delete_expired_resource_from_tree", max_instances=1)
     # scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
     # scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
     # scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
     # scheduler.add_job(qcloud_dnspod_billing_task, "cron", hour=10, minute=5, id="qcloud_dnspod_billing_task", max_instances=1)
     init_billing_tasks()
+
+
+def delete_expired_resource_from_tree():
+    """
+    删除服务树上的过期主机资产数据
+    """
+    try:
+        with DBContext('w', None, True) as session:
+            # 查询所有在服务树中绑定而不存在与主机表中的资产
+            expired_query = session.query(TreeAssetModels).filter(
+                and_(
+                    TreeAssetModels.asset_type == 'server',  # 只处理服务器类型的资产
+                    not_(
+                        exists().where(AssetServerModels.id == TreeAssetModels.asset_id)
+                    )
+                )
+            )
+            expired_count = expired_query.count()
+            if expired_count == 0:
+                logging.info("过期服务树资产为空")
+                return
+            delete_count = expired_query.delete(synchronize_session=False)
+            logging.info(f"删除过期服务树树资产：{delete_count} 条")
+    except Exception as e:
+        logging.error(f"删除服务树过期资产失败: {e}")
 
 
 if __name__ == "__main__":
