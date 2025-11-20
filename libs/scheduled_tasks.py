@@ -10,6 +10,7 @@ import time
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Set
 
+from sqlalchemy import exists
 from websdk2.api_set import api_set
 from websdk2.client import AcsClient
 from websdk2.configs import configs
@@ -33,7 +34,7 @@ from libs.aliyun.aliyun_billing import AliyunBilling
 from libs.volc.volc_billing import VolCAutoRenew, VolCBilling
 from models import TreeAssetModels, asset_mapping
 from models.agent import AgentModels
-from models.asset import AgentBindStatus, AssetServerModels
+from models.asset import AgentBindStatus, AssetServerModels, AssetMySQLModels, AssetLBModels, AssetRedisModels
 from models.cloud import CloudSettingModels,CloudBillingSettingModels
 from models.models_utils import get_cloud_config
 from services.asset_server_service import get_unique_servers
@@ -1044,11 +1045,83 @@ def init_scheduled_tasks():
     scheduler.add_job(bind_server_tasks, "cron", hour=10, minute=0, id="bind_server_tasks", max_instances=1)
     scheduler.add_job(volc_auto_renew_task, "cron", hour=9, minute=30, id="volc_auto_renew_task", max_instances=1)
     scheduler.add_job(qcloud_auto_renew_task, "cron", hour=9, minute=30, id="qcloud_auto_renew_task", max_instances=1)
+    # 每天凌晨3点删除服务树上过期的资源
+    scheduler.add_job(delete_all_expired_resources_from_tree, "cron", hour=3, minute=0, id="delete_expired_resources_from_tree", max_instances=1)
     # scheduler.add_job(volc_billing_task, "cron", hour=10, minute=1, id="volc_billing_task", max_instances=1)
     # scheduler.add_job(qcloud_billing_task, "cron", hour=10, minute=2, id="qcloud_billing_task", max_instances=1)
     # scheduler.add_job(aliyun_billing_task, "cron", hour=10, minute=3, id="aliyun_billing_task", max_instances=1)
     # scheduler.add_job(qcloud_dnspod_billing_task, "cron", hour=10, minute=5, id="qcloud_dnspod_billing_task", max_instances=1)
     init_billing_tasks()
+
+
+def delete_all_expired_resources_from_tree():
+    """
+    删除 TreeAsset 中关联的 server/mysql/redis/lb 已不存在的资源
+    """
+
+    try:
+        with DBContext('w', None, True) as session:
+
+            resource_configs = [
+                ("server", AssetServerModels,),
+                ("mysql", AssetMySQLModels,),
+                ("redis", AssetRedisModels,),
+                ("lb", AssetLBModels,),
+            ]
+
+            expired_ids_map = {}
+            all_expired_ids = []
+
+            # 查询所有资源类型的过期树资产
+            for asset_type, model in resource_configs:
+                try:
+                    rows = (
+                        session.query(TreeAssetModels.id)
+                        .filter(
+                            TreeAssetModels.asset_type == asset_type,
+                            ~exists().where(model.id == TreeAssetModels.asset_id)
+                        )
+                        .all()
+                    )
+
+                    expired_ids = list(set([r[0] for r in rows]))
+
+                    if expired_ids:
+                        expired_ids_map[asset_type] = {
+                            "ids": expired_ids,
+                            "count": len(list(set(expired_ids))),
+                        }
+                        all_expired_ids.extend(expired_ids)
+
+                except Exception as e:
+                    logging.error(f"查询{asset_type}过期资产失败: {e}")
+
+            all_expired_ids = list(set(all_expired_ids))
+
+            # 如果没有要删除的，退出
+            if not all_expired_ids:
+                logging.info("没有过期的 Tree 资产，跳过删除")
+                return
+
+            # 执行删除
+            try:
+                delete_count = (
+                    session.query(TreeAssetModels)
+                    .filter(TreeAssetModels.id.in_(all_expired_ids))
+                    .delete(synchronize_session=False)
+                )
+
+                logging.info(f"总共删除过期 TreeAsset 记录: {delete_count}")
+
+                for asset_type, data in expired_ids_map.items():
+                    logging.info(f"-删除过期 {asset_type}：{data['count']} 条")
+
+            except Exception as e:
+                logging.error(f"删除过期 Tree 资产失败: {e}")
+
+
+    except Exception as e:
+        logging.error(f"清理 Tree 资产失败: {e}")
 
 
 if __name__ == "__main__":
