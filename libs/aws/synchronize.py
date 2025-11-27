@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from websdk2.tools import RedisLock
 from models.models_utils import get_cloud_config, sync_log_task
 from libs import deco
-from libs.qcloud import mapping, DEFAULT_CLOUD_NAME
+from libs.aws import mapping, DEFAULT_CLOUD_NAME
 from libs.mycrypt import mc
 
 
