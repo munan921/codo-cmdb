@@ -23,7 +23,8 @@ asset_type_enum = Enum(
     'domain',
     'oss',
     'cdn',
-    'eip'
+    'eip',
+    '',
 )
 
 operator_list = [
