@@ -24,7 +24,10 @@ asset_type_enum = Enum(
     'oss',
     'cdn',
     'eip',
-    '',
+    'mongo',
+    'kafka',
+    'es',
+    'etcd',
 )
 
 operator_list = [
