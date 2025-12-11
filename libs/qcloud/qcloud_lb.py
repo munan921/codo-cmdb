@@ -90,8 +90,9 @@ class QCloudLB:
             "ip_version": row.AddressIPVersion,
             "charge_type": get_pay_type(row.ChargeType),
         }
-        if hasattr(row, "PrepaidAttributes"):
-            res["renew_type"] = get_renew_type(row.PrepaidAttributes.RenewFlag)
+        prepaid = getattr(row, "PrepaidAttributes", None)
+        renew_flag = prepaid.RenewFlag if prepaid and hasattr(prepaid, "RenewFlag") else None
+        res["renew_type"] = get_renew_type(renew_flag)
         return res
 
     def get_lb_response(self, offset) -> list:
